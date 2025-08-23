@@ -1,0 +1,529 @@
+<template>
+  <div class="outline-item" :class="{ 'is-root': isRoot }">
+    <div class="item-content">
+      <div class="item-main">
+        <div class="item-controls-left">
+          <q-btn
+            v-if="item.children && item.children.length > 0"
+            round
+            dense
+            flat
+            size="xs"
+            :icon="item.collapsed ? 'chevron_right' : 'expand_more'"
+            @click="toggleCollapse"
+          />
+          <div v-else class="spacer"></div>
+          
+          <q-btn
+            round
+            dense
+            flat
+            size="xs"
+            :icon="item.type === 'ordered' ? 'format_list_numbered' : 'format_list_bulleted'"
+            @click="toggleListType"
+          >
+            <q-tooltip>Toggle List Type</q-tooltip>
+          </q-btn>
+        </div>
+        
+        <div class="item-text-container">
+          <div class="item-prefix" v-if="item.type === 'ordered'">
+            {{ getOrderNumber() }}.
+          </div>
+          <div class="item-prefix" v-else>
+            •
+          </div>
+          
+          <q-input
+            :model-value="item.text"
+            dense
+            borderless
+            class="item-text-input"
+            @update:model-value="updateText"
+            @keydown.enter.prevent="handleEnter"
+            @keydown.tab.prevent="handleTab"
+            @keydown.shift.tab.prevent="handleShiftTab"
+          />
+          
+          <span v-for="note in item.shortNotes" :key="note.id" class="short-note">
+            <span class="short-note-text" @click="editShortNote(note)">
+              {{ note.text }}
+            </span>
+            <q-btn
+              round
+              dense
+              flat
+              size="xs"
+              icon="close"
+              class="short-note-delete"
+              @click="deleteShortNote(note.id)"
+            />
+          </span>
+        </div>
+        
+        <div class="item-controls-right">
+          <q-btn
+            round
+            dense
+            flat
+            size="xs"
+            icon="note_add"
+            @click="showNoteMenu = !showNoteMenu"
+          >
+            <q-tooltip>Add Note</q-tooltip>
+            <q-menu v-model="showNoteMenu">
+              <q-list dense>
+                <q-item clickable v-close-popup @click="addShortNote">
+                  <q-item-section>Add Short Note</q-item-section>
+                </q-item>
+                <q-item clickable v-close-popup @click="addLongNote">
+                  <q-item-section>Add Long Note</q-item-section>
+                </q-item>
+              </q-list>
+            </q-menu>
+          </q-btn>
+          
+          <q-btn
+            round
+            dense
+            flat
+            size="xs"
+            icon="add"
+            @click="addChild"
+          >
+            <q-tooltip>Add Child</q-tooltip>
+          </q-btn>
+          
+          <q-btn
+            round
+            dense
+            flat
+            size="xs"
+            icon="more_vert"
+          >
+            <q-menu>
+              <q-list dense>
+                <q-item clickable v-close-popup @click="addSibling">
+                  <q-item-section>Add Sibling</q-item-section>
+                </q-item>
+                <q-item clickable v-close-popup @click="moveUp" :disable="index === 0">
+                  <q-item-section>Move Up</q-item-section>
+                </q-item>
+                <q-item clickable v-close-popup @click="moveDown">
+                  <q-item-section>Move Down</q-item-section>
+                </q-item>
+                <q-item clickable v-close-popup @click="indent" :disable="isRoot || index === 0">
+                  <q-item-section>Indent</q-item-section>
+                </q-item>
+                <q-item clickable v-close-popup @click="outdent" :disable="isRoot">
+                  <q-item-section>Outdent</q-item-section>
+                </q-item>
+                <q-separator />
+                <q-item clickable v-close-popup @click="deleteItem">
+                  <q-item-section class="text-negative">Delete</q-item-section>
+                </q-item>
+              </q-list>
+            </q-menu>
+          </q-btn>
+        </div>
+      </div>
+      
+      <div v-if="item.longNotes && item.longNotes.length > 0" class="long-notes">
+        <div v-for="note in item.longNotes" :key="note.id" class="long-note">
+          <div class="long-note-header">
+            <q-btn
+              round
+              dense
+              flat
+              size="xs"
+              :icon="note.collapsed ? 'chevron_right' : 'expand_more'"
+              @click="toggleLongNote(note.id)"
+            />
+            <span class="long-note-label">Note</span>
+            <q-btn
+              round
+              dense
+              flat
+              size="xs"
+              icon="edit"
+              @click="editLongNote(note)"
+            />
+            <q-btn
+              round
+              dense
+              flat
+              size="xs"
+              icon="close"
+              @click="deleteLongNote(note.id)"
+            />
+          </div>
+          <div v-if="!note.collapsed" class="long-note-content">
+            <div v-html="formatText(note.text)"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+    
+    <div v-if="!item.collapsed && item.children && item.children.length > 0" class="item-children">
+      <OutlineItem
+        v-for="(child, childIndex) in item.children"
+        :key="child.id"
+        :item="child"
+        :index="childIndex"
+        :isRoot="false"
+        :parentIndex="getOrderNumber()"
+      />
+    </div>
+    
+    <q-dialog v-model="showShortNoteDialog">
+      <q-card style="min-width: 350px">
+        <q-card-section>
+          <div class="text-h6">{{ editingNote ? 'Edit' : 'Add' }} Short Note</div>
+        </q-card-section>
+        
+        <q-card-section class="q-pt-none">
+          <q-input
+            v-model="noteText"
+            label="Note (e.g., p. 23-45)"
+            autofocus
+            @keyup.enter="saveShortNote"
+          />
+        </q-card-section>
+        
+        <q-card-actions align="right">
+          <q-btn flat label="Cancel" v-close-popup />
+          <q-btn
+            flat
+            label="Save"
+            color="primary"
+            :disable="!noteText.trim()"
+            @click="saveShortNote"
+          />
+        </q-card-actions>
+      </q-card>
+    </q-dialog>
+    
+    <q-dialog v-model="showLongNoteDialog" maximized>
+      <q-card>
+        <q-card-section class="row items-center">
+          <div class="text-h6">{{ editingNote ? 'Edit' : 'Add' }} Long Note</div>
+          <q-space />
+          <q-btn icon="close" flat round dense v-close-popup />
+        </q-card-section>
+        
+        <q-card-section class="q-pt-none">
+          <q-editor
+            v-model="noteText"
+            min-height="300px"
+            :toolbar="[
+              ['bold', 'italic', 'underline'],
+              ['undo', 'redo']
+            ]"
+          />
+        </q-card-section>
+        
+        <q-card-actions align="right">
+          <q-btn flat label="Cancel" v-close-popup />
+          <q-btn
+            flat
+            label="Save"
+            color="primary"
+            @click="saveLongNote"
+          />
+        </q-card-actions>
+      </q-card>
+    </q-dialog>
+  </div>
+</template>
+
+<script setup>
+import { ref } from 'vue'
+import { useOutlineStore } from 'stores/outline-store'
+
+const props = defineProps({
+  item: {
+    type: Object,
+    required: true
+  },
+  index: {
+    type: Number,
+    required: true
+  },
+  isRoot: {
+    type: Boolean,
+    default: false
+  },
+  parentIndex: {
+    type: String,
+    default: ''
+  }
+})
+
+const store = useOutlineStore()
+
+const showNoteMenu = ref(false)
+const showShortNoteDialog = ref(false)
+const showLongNoteDialog = ref(false)
+const noteText = ref('')
+const editingNote = ref(null)
+
+function getOrderNumber() {
+  if (props.parentIndex) {
+    return `${props.parentIndex}.${props.index + 1}`
+  }
+  return String(props.index + 1)
+}
+
+function toggleCollapse() {
+  store.updateListItem(props.item.id, { collapsed: !props.item.collapsed })
+}
+
+function toggleListType() {
+  const newType = props.item.type === 'ordered' ? 'unordered' : 'ordered'
+  store.updateListItem(props.item.id, { type: newType })
+}
+
+function updateText(value) {
+  store.updateListItem(props.item.id, { text: value })
+}
+
+function handleEnter() {
+  addSibling()
+}
+
+function handleTab() {
+  if (!props.isRoot && props.index > 0) {
+    indent()
+  }
+}
+
+function handleShiftTab() {
+  if (!props.isRoot) {
+    outdent()
+  }
+}
+
+function addChild() {
+  store.addChildItem(props.item.id)
+}
+
+function addSibling() {
+  if (props.isRoot) {
+    store.addRootListItem()
+  } else {
+    store.addChildItem(props.item.parentId)
+  }
+}
+
+function moveUp() {
+  store.moveItem(props.item.id, 'up')
+}
+
+function moveDown() {
+  store.moveItem(props.item.id, 'down')
+}
+
+function indent() {
+  store.indentItem(props.item.id)
+}
+
+function outdent() {
+  store.outdentItem(props.item.id)
+}
+
+function deleteItem() {
+  store.deleteListItem(props.item.id)
+}
+
+function addShortNote() {
+  editingNote.value = null
+  noteText.value = ''
+  showShortNoteDialog.value = true
+}
+
+function editShortNote(note) {
+  editingNote.value = note
+  noteText.value = note.text
+  showShortNoteDialog.value = true
+}
+
+function saveShortNote() {
+  if (noteText.value.trim()) {
+    if (editingNote.value) {
+      store.updateNote(props.item.id, editingNote.value.id, 'short', noteText.value.trim())
+    } else {
+      store.addShortNote(props.item.id, noteText.value.trim())
+    }
+    showShortNoteDialog.value = false
+    noteText.value = ''
+    editingNote.value = null
+  }
+}
+
+function deleteShortNote(noteId) {
+  store.deleteNote(props.item.id, noteId, 'short')
+}
+
+function addLongNote() {
+  editingNote.value = null
+  noteText.value = ''
+  showLongNoteDialog.value = true
+}
+
+function editLongNote(note) {
+  editingNote.value = note
+  noteText.value = note.text
+  showLongNoteDialog.value = true
+}
+
+function saveLongNote() {
+  if (noteText.value.trim()) {
+    if (editingNote.value) {
+      store.updateNote(props.item.id, editingNote.value.id, 'long', noteText.value.trim())
+    } else {
+      store.addLongNote(props.item.id, noteText.value.trim())
+    }
+    showLongNoteDialog.value = false
+    noteText.value = ''
+    editingNote.value = null
+  }
+}
+
+function deleteLongNote(noteId) {
+  store.deleteNote(props.item.id, noteId, 'long')
+}
+
+function toggleLongNote(noteId) {
+  store.toggleNoteCollapse(props.item.id, noteId)
+}
+
+function formatText(text) {
+  return text
+    .replace(/<b>/g, '<strong>')
+    .replace(/<\/b>/g, '</strong>')
+    .replace(/<i>/g, '<em>')
+    .replace(/<\/i>/g, '</em>')
+    .replace(/<u>/g, '<span style="text-decoration: underline;">')
+    .replace(/<\/u>/g, '</span>')
+}
+</script>
+
+<style scoped>
+.outline-item {
+  margin-bottom: 4px;
+}
+
+.item-content {
+  background: white;
+  border-radius: 4px;
+  padding: 4px 8px;
+}
+
+.item-main {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.item-controls-left {
+  display: flex;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.spacer {
+  width: 24px;
+}
+
+.item-text-container {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.item-prefix {
+  font-weight: 500;
+  color: #666;
+  flex-shrink: 0;
+}
+
+.item-text-input {
+  flex: 1;
+}
+
+.short-note {
+  font-style: italic;
+  color: #666;
+  font-size: 0.9em;
+  margin-left: 8px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.short-note-text {
+  cursor: pointer;
+}
+
+.short-note-text:hover {
+  text-decoration: underline;
+}
+
+.short-note-delete {
+  opacity: 0;
+  transition: opacity 0.2s;
+}
+
+.short-note:hover .short-note-delete {
+  opacity: 1;
+}
+
+.item-controls-right {
+  display: flex;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.long-notes {
+  margin-top: 8px;
+  margin-left: 32px;
+}
+
+.long-note {
+  background: #f5f5f5;
+  border-radius: 4px;
+  padding: 8px;
+  margin-bottom: 4px;
+}
+
+.long-note-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.long-note-label {
+  flex: 1;
+  font-weight: 500;
+  color: #666;
+  font-size: 0.9em;
+}
+
+.long-note-content {
+  margin-top: 8px;
+  margin-left: 32px;
+  padding: 8px;
+  background: white;
+  border-radius: 4px;
+}
+
+.item-children {
+  margin-left: 32px;
+  margin-top: 4px;
+}
+
+.is-root > .item-content {
+  border-left: 3px solid #1976d2;
+}
+</style>
