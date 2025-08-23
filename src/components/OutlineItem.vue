@@ -131,23 +131,27 @@
       
       <div v-if="item.longNotes && item.longNotes.length > 0" class="long-notes">
         <div v-for="note in item.longNotes" :key="note.id" class="long-note">
-          <div class="long-note-header">
+          <div class="long-note-header" @click="toggleLongNote(note.id)">
             <q-btn
               round
               dense
               flat
               size="xs"
               :icon="note.collapsed ? 'chevron_right' : 'expand_more'"
-              @click="toggleLongNote(note.id)"
+              @click.stop="toggleLongNote(note.id)"
             />
-            <span class="long-note-label">Note</span>
+            <span v-if="note.collapsed" class="long-note-preview">
+              Note: {{ stripHtml(note.text) }}...
+            </span>
+            <span v-else class="long-note-label">Note</span>
+            <q-space />
             <q-btn
               round
               dense
               flat
               size="xs"
               icon="edit"
-              @click="editLongNote(note)"
+              @click.stop="editLongNote(note)"
             />
             <q-btn
               round
@@ -155,7 +159,7 @@
               flat
               size="xs"
               icon="close"
-              @click="deleteLongNote(note.id)"
+              @click.stop="deleteLongNote(note.id)"
             />
           </div>
           <div v-if="!note.collapsed" class="long-note-content">
@@ -398,6 +402,12 @@ function formatText(text) {
     .replace(/<u>/g, '<span style="text-decoration: underline;">')
     .replace(/<\/u>/g, '</span>')
 }
+
+function stripHtml(text) {
+  const tmp = document.createElement('div')
+  tmp.innerHTML = text
+  return tmp.textContent || tmp.innerText || ''
+}
 </script>
 
 <style scoped>
@@ -493,13 +503,23 @@ function formatText(text) {
   display: flex;
   align-items: center;
   gap: 8px;
+  cursor: pointer;
 }
 
 .long-note-label {
-  flex: 1;
   font-weight: 500;
   color: #666;
   font-size: 0.9em;
+}
+
+.long-note-preview {
+  flex: 1;
+  color: #666;
+  font-size: 0.9em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
 }
 
 .long-note-content {
