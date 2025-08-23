@@ -1,6 +1,6 @@
 <template>
-  <div class="outline-item" :class="{ 'is-root': isRoot }" :style="{ fontSize: fontSize + 'px' }">
-    <div class="item-content">
+  <div class="outline-item" :class="{ 'is-root': isRoot }">
+    <div class="item-content" :style="{ fontSize: fontSize + 'px' }">
       <div class="item-main">
         <div class="item-controls-left">
           <q-btn
@@ -13,40 +13,24 @@
             @click="toggleCollapse"
           />
           <div v-else class="spacer"></div>
-          
-          <q-btn
-            v-if="item.children && item.children.length > 0"
-            round
-            dense
-            flat
-            size="xs"
-            :icon="item.childrenType === 'ordered' ? 'format_list_numbered' : 'format_list_bulleted'"
-            @click="toggleChildrenListType"
-          >
-            <q-tooltip>Toggle Children List Type</q-tooltip>
-          </q-btn>
-          <div v-else class="spacer"></div>
         </div>
-        
+
         <div class="item-text-container">
-          <div class="item-prefix" v-if="listType === 'ordered'">
-            {{ index + 1 }}.
-          </div>
-          <div class="item-prefix" v-else>
-            •
-          </div>
-          
+          <div class="item-prefix" v-if="listType === 'ordered'">{{ index + 1 }}.</div>
+          <div class="item-prefix" v-else>•</div>
+
           <q-input
             :model-value="item.text"
             dense
             borderless
             class="item-text-input"
+            :style="{ fontSize: fontSize + 'px' }"
             @update:model-value="updateText"
             @keydown.enter.prevent="handleEnter"
             @keydown.tab.prevent="handleTab"
             @keydown.shift.tab.prevent="handleShiftTab"
           />
-          
+
           <span v-for="note in item.shortNotes" :key="note.id" class="short-note">
             <span class="short-note-text" @click="editShortNote(note)">
               {{ note.text }}
@@ -62,15 +46,9 @@
             />
           </span>
         </div>
-        
+
         <div class="item-controls-right">
-          <q-btn
-            round
-            dense
-            flat
-            size="xs"
-            icon="note_add"
-          >
+          <q-btn round dense flat size="xs" icon="note_add">
             <q-tooltip>Add Note</q-tooltip>
             <q-menu>
               <q-list dense>
@@ -83,30 +61,35 @@
               </q-list>
             </q-menu>
           </q-btn>
-          
-          <q-btn
-            round
-            dense
-            flat
-            size="xs"
-            icon="add"
-            @click="addChild"
-          >
+
+          <q-btn round dense flat size="xs" icon="add" @click="addChild">
             <q-tooltip>Add Child</q-tooltip>
           </q-btn>
-          
-          <q-btn
-            round
-            dense
-            flat
-            size="xs"
-            icon="more_vert"
-          >
+
+          <q-btn round dense flat size="xs" icon="more_vert">
             <q-menu>
               <q-list dense>
                 <q-item clickable v-close-popup @click="addSibling">
                   <q-item-section>Add Sibling</q-item-section>
                 </q-item>
+                <q-item 
+                  v-if="item.children && item.children.length > 0" 
+                  clickable 
+                  v-close-popup 
+                  @click="toggleChildrenListType"
+                >
+                  <q-item-section>
+                    <div class="row items-center">
+                      <q-icon 
+                        :name="item.childrenType === 'ordered' ? 'format_list_numbered' : 'format_list_bulleted'" 
+                        size="xs" 
+                        class="q-mr-xs"
+                      />
+                      Toggle Children Type
+                    </div>
+                  </q-item-section>
+                </q-item>
+                <q-separator />
                 <q-item clickable v-close-popup @click="moveUp" :disable="index === 0">
                   <q-item-section>Move Up</q-item-section>
                 </q-item>
@@ -128,7 +111,7 @@
           </q-btn>
         </div>
       </div>
-      
+
       <div v-if="item.longNotes && item.longNotes.length > 0" class="long-notes">
         <div v-for="note in item.longNotes" :key="note.id" class="long-note">
           <div class="long-note-header" @click="toggleLongNote(note.id)">
@@ -145,22 +128,8 @@
             </span>
             <span v-else class="long-note-label">Note</span>
             <q-space />
-            <q-btn
-              round
-              dense
-              flat
-              size="xs"
-              icon="edit"
-              @click.stop="editLongNote(note)"
-            />
-            <q-btn
-              round
-              dense
-              flat
-              size="xs"
-              icon="close"
-              @click.stop="deleteLongNote(note.id)"
-            />
+            <q-btn round dense flat size="xs" icon="edit" @click.stop="editLongNote(note)" />
+            <q-btn round dense flat size="xs" icon="close" @click.stop="deleteLongNote(note.id)" />
           </div>
           <div v-if="!note.collapsed" class="long-note-content">
             <div v-html="formatText(note.text)"></div>
@@ -168,7 +137,7 @@
         </div>
       </div>
     </div>
-    
+
     <div v-if="!item.collapsed && item.children && item.children.length > 0" class="item-children">
       <OutlineItem
         v-for="(child, childIndex) in item.children"
@@ -179,13 +148,13 @@
         :listType="item.childrenType"
       />
     </div>
-    
+
     <q-dialog v-model="showShortNoteDialog">
       <q-card style="min-width: 350px">
         <q-card-section>
           <div class="text-h6">{{ editingNote ? 'Edit' : 'Add' }} Short Note</div>
         </q-card-section>
-        
+
         <q-card-section class="q-pt-none">
           <q-input
             v-model="noteText"
@@ -194,7 +163,7 @@
             @keyup.enter="saveShortNote"
           />
         </q-card-section>
-        
+
         <q-card-actions align="right">
           <q-btn flat label="Cancel" v-close-popup />
           <q-btn
@@ -207,7 +176,7 @@
         </q-card-actions>
       </q-card>
     </q-dialog>
-    
+
     <q-dialog v-model="showLongNoteDialog" maximized>
       <q-card>
         <q-card-section class="row items-center">
@@ -215,26 +184,21 @@
           <q-space />
           <q-btn icon="close" flat round dense v-close-popup />
         </q-card-section>
-        
+
         <q-card-section class="q-pt-none">
           <q-editor
             v-model="noteText"
             min-height="300px"
             :toolbar="[
               ['bold', 'italic', 'underline'],
-              ['undo', 'redo']
+              ['undo', 'redo'],
             ]"
           />
         </q-card-section>
-        
+
         <q-card-actions align="right">
           <q-btn flat label="Cancel" v-close-popup />
-          <q-btn
-            flat
-            label="Save"
-            color="primary"
-            @click="saveLongNote"
-          />
+          <q-btn flat label="Save" color="primary" @click="saveLongNote" />
         </q-card-actions>
       </q-card>
     </q-dialog>
@@ -249,20 +213,20 @@ import { storeToRefs } from 'pinia'
 const props = defineProps({
   item: {
     type: Object,
-    required: true
+    required: true,
   },
   index: {
     type: Number,
-    required: true
+    required: true,
   },
   isRoot: {
     type: Boolean,
-    default: false
+    default: false,
   },
   listType: {
     type: String,
-    default: 'unordered'
-  }
+    default: 'unordered',
+  },
 })
 
 const store = useOutlineStore()
@@ -450,10 +414,15 @@ function stripHtml(text) {
   font-weight: 500;
   color: #666;
   flex-shrink: 0;
+  font-size: inherit;
 }
 
 .item-text-input {
   flex: 1;
+}
+
+.item-text-input :deep(input) {
+  font-size: inherit !important;
 }
 
 .short-note {
