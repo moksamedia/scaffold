@@ -19,7 +19,8 @@ export const useOutlineStore = defineStore('outline', () => {
       name,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
-      lists: []
+      lists: [],
+      rootListType: 'unordered'
     }
     projects.value.push(project)
     saveToLocalStorage()
@@ -55,11 +56,11 @@ export const useOutlineStore = defineStore('outline', () => {
     return {
       id: generateId(),
       text,
-      type: 'unordered',
       collapsed: false,
       shortNotes: [],
       longNotes: [],
       children: [],
+      childrenType: 'unordered',
       parentId
     }
   }
@@ -274,6 +275,25 @@ export const useOutlineStore = defineStore('outline', () => {
     }
   }
   
+  function toggleRootListType() {
+    if (!currentProject.value) return
+    
+    currentProject.value.rootListType = currentProject.value.rootListType === 'ordered' ? 'unordered' : 'ordered'
+    currentProject.value.updatedAt = new Date().toISOString()
+    saveToLocalStorage()
+  }
+  
+  function toggleChildrenListType(itemId) {
+    if (!currentProject.value) return
+    
+    const item = findItemById(currentProject.value.lists, itemId)
+    if (item) {
+      item.childrenType = item.childrenType === 'ordered' ? 'unordered' : 'ordered'
+      currentProject.value.updatedAt = new Date().toISOString()
+      saveToLocalStorage()
+    }
+  }
+  
   function saveToLocalStorage() {
     localStorage.setItem('outline-projects', JSON.stringify(projects.value))
     localStorage.setItem('outline-current-project', currentProjectId.value || '')
@@ -286,6 +306,29 @@ export const useOutlineStore = defineStore('outline', () => {
     if (savedProjects) {
       try {
         projects.value = JSON.parse(savedProjects)
+        // Migrate old data structure
+        projects.value.forEach(project => {
+          if (!project.rootListType) {
+            project.rootListType = 'unordered'
+          }
+          function migrateItems(items) {
+            items.forEach(item => {
+              if (item.type && !item.childrenType) {
+                item.childrenType = 'unordered'
+                delete item.type
+              }
+              if (!item.childrenType) {
+                item.childrenType = 'unordered'
+              }
+              if (item.children) {
+                migrateItems(item.children)
+              }
+            })
+          }
+          if (project.lists) {
+            migrateItems(project.lists)
+          }
+        })
       } catch (e) {
         console.error('Failed to load projects from localStorage:', e)
       }
@@ -322,6 +365,8 @@ export const useOutlineStore = defineStore('outline', () => {
     toggleNoteCollapse,
     moveItem,
     indentItem,
-    outdentItem
+    outdentItem,
+    toggleRootListType,
+    toggleChildrenListType
   }
 })

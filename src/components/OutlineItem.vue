@@ -15,20 +15,22 @@
           <div v-else class="spacer"></div>
           
           <q-btn
+            v-if="item.children && item.children.length > 0"
             round
             dense
             flat
             size="xs"
-            :icon="item.type === 'ordered' ? 'format_list_numbered' : 'format_list_bulleted'"
-            @click="toggleListType"
+            :icon="item.childrenType === 'ordered' ? 'format_list_numbered' : 'format_list_bulleted'"
+            @click="toggleChildrenListType"
           >
-            <q-tooltip>Toggle List Type</q-tooltip>
+            <q-tooltip>Toggle Children List Type</q-tooltip>
           </q-btn>
+          <div v-else class="spacer"></div>
         </div>
         
         <div class="item-text-container">
-          <div class="item-prefix" v-if="item.type === 'ordered'">
-            {{ getOrderNumber() }}.
+          <div class="item-prefix" v-if="listType === 'ordered'">
+            {{ index + 1 }}.
           </div>
           <div class="item-prefix" v-else>
             •
@@ -68,10 +70,9 @@
             flat
             size="xs"
             icon="note_add"
-            @click="showNoteMenu = !showNoteMenu"
           >
             <q-tooltip>Add Note</q-tooltip>
-            <q-menu v-model="showNoteMenu">
+            <q-menu>
               <q-list dense>
                 <q-item clickable v-close-popup @click="addShortNote">
                   <q-item-section>Add Short Note</q-item-section>
@@ -171,7 +172,7 @@
         :item="child"
         :index="childIndex"
         :isRoot="false"
-        :parentIndex="getOrderNumber()"
+        :listType="item.childrenType"
       />
     </div>
     
@@ -253,34 +254,25 @@ const props = defineProps({
     type: Boolean,
     default: false
   },
-  parentIndex: {
+  listType: {
     type: String,
-    default: ''
+    default: 'unordered'
   }
 })
 
 const store = useOutlineStore()
 
-const showNoteMenu = ref(false)
 const showShortNoteDialog = ref(false)
 const showLongNoteDialog = ref(false)
 const noteText = ref('')
 const editingNote = ref(null)
 
-function getOrderNumber() {
-  if (props.parentIndex) {
-    return `${props.parentIndex}.${props.index + 1}`
-  }
-  return String(props.index + 1)
-}
-
 function toggleCollapse() {
   store.updateListItem(props.item.id, { collapsed: !props.item.collapsed })
 }
 
-function toggleListType() {
-  const newType = props.item.type === 'ordered' ? 'unordered' : 'ordered'
-  store.updateListItem(props.item.id, { type: newType })
+function toggleChildrenListType() {
+  store.toggleChildrenListType(props.item.id)
 }
 
 function updateText(value) {

@@ -9,6 +9,15 @@
           round
           dense
           flat
+          :icon="currentProject.rootListType === 'ordered' ? 'format_list_numbered' : 'format_list_bulleted'"
+          @click="toggleRootListType"
+        >
+          <q-tooltip>Toggle Root List Type</q-tooltip>
+        </q-btn>
+        <q-btn
+          round
+          dense
+          flat
           icon="add"
           color="primary"
           @click="addRootItem"
@@ -29,6 +38,7 @@
           :item="item"
           :index="index"
           :isRoot="true"
+          :listType="currentProject.rootListType"
         />
       </div>
     </div>
@@ -50,6 +60,10 @@ const { currentProject } = storeToRefs(store)
 
 function addRootItem() {
   store.addRootListItem()
+}
+
+function toggleRootListType() {
+  store.toggleRootListType()
 }
 </script>
 
