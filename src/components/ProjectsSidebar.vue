@@ -23,6 +23,42 @@
           </q-btn>
         </div>
         
+        <div class="q-mb-md">
+          <div class="text-caption text-grey-8 q-mb-xs">Font Size</div>
+          <div class="row items-center q-gutter-xs">
+            <q-btn
+              round
+              dense
+              flat
+              icon="remove"
+              size="sm"
+              :disable="fontSize <= 10"
+              @click="decreaseFontSize"
+            />
+            <div class="text-body2" style="min-width: 40px; text-align: center;">
+              {{ fontSize }}px
+            </div>
+            <q-btn
+              round
+              dense
+              flat
+              icon="add"
+              size="sm"
+              :disable="fontSize >= 24"
+              @click="increaseFontSize"
+            />
+            <q-slider
+              v-model="fontSize"
+              :min="10"
+              :max="24"
+              :step="1"
+              color="primary"
+              class="col q-ml-sm"
+              @update:model-value="updateFontSize"
+            />
+          </div>
+        </div>
+        
         <q-list>
           <q-item
             v-for="project in projects"
@@ -139,7 +175,7 @@ import { useOutlineStore } from 'stores/outline-store'
 import { storeToRefs } from 'pinia'
 
 const store = useOutlineStore()
-const { projects, currentProjectId } = storeToRefs(store)
+const { projects, currentProjectId, fontSize } = storeToRefs(store)
 
 const drawer = ref(true)
 const showNewProjectDialog = ref(false)
@@ -212,5 +248,21 @@ function formatDate(dateString) {
   } else {
     return date.toLocaleDateString()
   }
+}
+
+function increaseFontSize() {
+  if (fontSize.value < 24) {
+    store.setFontSize(fontSize.value + 1)
+  }
+}
+
+function decreaseFontSize() {
+  if (fontSize.value > 10) {
+    store.setFontSize(fontSize.value - 1)
+  }
+}
+
+function updateFontSize(value) {
+  store.setFontSize(value)
 }
 </script>

@@ -1,5 +1,5 @@
 <template>
-  <div class="outline-item" :class="{ 'is-root': isRoot }">
+  <div class="outline-item" :class="{ 'is-root': isRoot }" :style="{ fontSize: fontSize + 'px' }">
     <div class="item-content">
       <div class="item-main">
         <div class="item-controls-left">
@@ -244,6 +244,7 @@
 <script setup>
 import { ref } from 'vue'
 import { useOutlineStore } from 'stores/outline-store'
+import { storeToRefs } from 'pinia'
 
 const props = defineProps({
   item: {
@@ -265,6 +266,7 @@ const props = defineProps({
 })
 
 const store = useOutlineStore()
+const { fontSize } = storeToRefs(store)
 
 const showShortNoteDialog = ref(false)
 const showLongNoteDialog = ref(false)

@@ -4,6 +4,7 @@ import { ref, computed } from 'vue'
 export const useOutlineStore = defineStore('outline', () => {
   const projects = ref([])
   const currentProjectId = ref(null)
+  const fontSize = ref(14)
   
   const currentProject = computed(() => {
     return projects.value.find(p => p.id === currentProjectId.value)
@@ -294,14 +295,25 @@ export const useOutlineStore = defineStore('outline', () => {
     }
   }
   
+  function setFontSize(size) {
+    fontSize.value = size
+    saveToLocalStorage()
+  }
+  
   function saveToLocalStorage() {
     localStorage.setItem('outline-projects', JSON.stringify(projects.value))
     localStorage.setItem('outline-current-project', currentProjectId.value || '')
+    localStorage.setItem('outline-font-size', fontSize.value.toString())
   }
   
   function loadFromLocalStorage() {
     const savedProjects = localStorage.getItem('outline-projects')
     const savedCurrentId = localStorage.getItem('outline-current-project')
+    const savedFontSize = localStorage.getItem('outline-font-size')
+    
+    if (savedFontSize) {
+      fontSize.value = parseInt(savedFontSize, 10)
+    }
     
     if (savedProjects) {
       try {
@@ -350,6 +362,7 @@ export const useOutlineStore = defineStore('outline', () => {
     projects,
     currentProjectId,
     currentProject,
+    fontSize,
     createProject,
     deleteProject,
     renameProject,
@@ -367,6 +380,7 @@ export const useOutlineStore = defineStore('outline', () => {
     indentItem,
     outdentItem,
     toggleRootListType,
-    toggleChildrenListType
+    toggleChildrenListType,
+    setFontSize
   }
 })
