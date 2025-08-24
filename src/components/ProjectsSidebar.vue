@@ -11,6 +11,9 @@
       <div class="q-pa-md">
         <div class="row items-center q-mb-md">
           <div class="col text-h6">Projects</div>
+          <q-btn round dense flat icon="download" size="sm" @click="exportAllProjects">
+            <q-tooltip>Export All Projects</q-tooltip>
+          </q-btn>
           <q-btn round dense flat icon="add" size="sm" @click="showNewProjectDialog = true">
             <q-tooltip>New Project</q-tooltip>
           </q-btn>
@@ -340,6 +343,10 @@ function updateDefaultListType(value) {
 
 function updateShowIndentGuides(value) {
   store.setShowIndentGuides(value)
+}
+
+function exportAllProjects() {
+  store.exportAllAsJSON()
 }
 
 function toggleDrawer() {

@@ -66,8 +66,14 @@
               <q-item clickable v-close-popup @click="exportAsDocx">
                 <q-item-section>Export as Word Document</q-item-section>
               </q-item>
+              <q-item clickable v-close-popup @click="exportAsJSON">
+                <q-item-section>Export as JSON</q-item-section>
+              </q-item>
             </q-list>
           </q-menu>
+        </q-btn>
+        <q-btn round dense flat icon="upload" @click="handleImport">
+          <q-tooltip>Import JSON</q-tooltip>
         </q-btn>
       </div>
 
@@ -99,10 +105,12 @@
 import { computed } from 'vue'
 import { useOutlineStore } from 'stores/outline-store'
 import { storeToRefs } from 'pinia'
+import { useQuasar } from 'quasar'
 import OutlineItem from './OutlineItem.vue'
 
 const store = useOutlineStore()
 const { currentProject, canUndo, canRedo } = storeToRefs(store)
+const $q = useQuasar()
 
 const isMac = computed(() => navigator.platform.toUpperCase().indexOf('MAC') >= 0)
 
@@ -128,6 +136,35 @@ function exportAsMarkdown() {
 
 function exportAsDocx() {
   store.exportAsDocx()
+}
+
+function exportAsJSON() {
+  store.exportAsJSON()
+}
+
+async function handleImport() {
+  try {
+    const result = await store.importFromJSONFile()
+    
+    let message = `Successfully imported ${result.imported} project(s)`
+    if (result.warnings && result.warnings.length > 0) {
+      message += `\n\nWarnings: ${result.warnings.join(', ')}`
+    }
+    
+    $q.notify({
+      type: 'positive',
+      message,
+      position: 'top',
+      timeout: 4000
+    })
+  } catch (error) {
+    $q.notify({
+      type: 'negative', 
+      message: `Import failed: ${error.message}`,
+      position: 'top',
+      timeout: 5000
+    })
+  }
 }
 
 function collapseAllItems() {

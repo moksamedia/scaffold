@@ -14,7 +14,8 @@ A powerful hierarchical outline and note-taking application built with Vue 3 and
 - **Auto-Save**: Automatic persistence to browser storage
 
 ### Advanced Features
-- **Export Options**: Export to Markdown and Microsoft Word (DOCX) formats
+- **Export/Import**: Export to Markdown, Microsoft Word (DOCX), and JSON formats; Import JSON backups
+- **Backup & Restore**: Complete project backup with settings preservation
 - **Bulk Operations**: Collapse or expand all items and notes with one click
 - **Per-Project Settings**: Customizable font size, indentation, and display options
 - **Context-Aware Shortcuts**: Intelligent keyboard handling that adapts to editing context
@@ -96,12 +97,20 @@ A powerful hierarchical outline and note-taking application built with Vue 3 and
 - Preserves hierarchical structure with proper indentation
 - Converts rich text to Markdown syntax
 - Includes inline short notes and blockquoted long notes
+- Proper line break handling within blockquotes
 
 #### Word Document Export
 - Dynamic numbering system adapts to your outline depth
 - Applies Word styles: List Paragraph, Comment, Block Quotation
 - Preserves paragraph structure and line breaks
 - Configurable indentation for professional documents
+
+#### JSON Export/Import
+- **Complete Backup**: Exports all project data, settings, and metadata
+- **Selective Export**: Export single project or all projects
+- **Import Validation**: Schema validation with detailed error reporting
+- **Conflict Resolution**: Automatically handles duplicate project names
+- **Format Versioning**: Future-proof with version compatibility checking
 
 ### Customization
 
@@ -153,7 +162,8 @@ src/
 ├── utils/               # Utility modules
 │   └── export/              # Export functionality
 │       ├── markdown.js      # Markdown export
-│       └── docx.js         # Word document export
+│       ├── docx.js         # Word document export
+│       └── json.js         # JSON export/import
 ├── layouts/             # Application layouts
 └── pages/               # Route pages
 ```

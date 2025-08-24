@@ -19,7 +19,8 @@ This is a Quasar Vue 3 application for creating and managing hierarchical outlin
 - Auto-scroll to visible items during navigation
 - Click-to-edit text interface
 - LocalStorage persistence
-- Export functionality: Markdown and DOCX formats with proper formatting
+- Export functionality: Markdown, DOCX, and JSON formats with proper formatting
+- Import functionality: JSON-based project restoration and backup
 - Bulk collapse/expand controls for items and notes
 
 ## File Structure
@@ -43,8 +44,9 @@ This is a Quasar Vue 3 application for creating and managing hierarchical outlin
 - `MainLayout.vue` - Application layout with sidebar toggle
 
 ### `/src/utils/export/`
-- `markdown.js` - Markdown export functionality with HTML to markdown conversion
+- `markdown.js` - Markdown export functionality with HTML to markdown conversion and blockquote handling
 - `docx.js` - DOCX export with dynamic nesting levels, Word styles, and paragraph structure preservation
+- `json.js` - JSON export/import with schema validation, conflict resolution, and format versioning
 
 ### Key Technical Patterns
 - Reactive Vue 3 Composition API throughout
@@ -61,13 +63,21 @@ This is a Quasar Vue 3 application for creating and managing hierarchical outlin
 - TAB navigation: cycles through siblings, Shift+TAB navigates to next item in outline hierarchy
 - Conditional scroll-to-view that only scrolls if item is not already visible
 - Rich text editor for long notes with lists, indentation, quotes, code blocks, links, images
-- Export system: Markdown and DOCX formats with proper formatting
+- Export system: Markdown, DOCX, and JSON formats with proper formatting
 - DOCX export features:
   - Dynamic nesting level detection and numbering system generation
   - Word style application: List Paragraph, Comment, Block Quotation
   - Paragraph structure preservation for long notes with blockquote handling
   - Line break preservation within formatted text
   - Configurable indentation parameters
+- Markdown export improvements:
+  - Proper blockquote handling with line break preservation
+  - Multi-line blockquotes with correct markdown syntax
+- JSON export/import system:
+  - Complete project backup with all settings and data
+  - Schema validation and error handling
+  - Conflict resolution for duplicate projects
+  - Format versioning for future compatibility
 - Bulk operations: collapse/expand all items and all long notes separately
 - Modular export architecture with separate utility files
 - Context-aware keyboard shortcuts: undo/redo directed to long note editor when active

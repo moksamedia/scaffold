@@ -3,6 +3,11 @@ import { ref, computed } from 'vue'
 
 import { exportAsMarkdown } from 'src/utils/export/markdown.js'
 import { exportAsDocx } from 'src/utils/export/docx.js'
+import { 
+  exportSingleProjectAsJSON, 
+  exportAllProjectsAsJSON,
+  importFromJSON 
+} from 'src/utils/export/json.js'
 
 export const useOutlineStore = defineStore('outline', () => {
   const projects = ref([])
@@ -566,6 +571,66 @@ export const useOutlineStore = defineStore('outline', () => {
     saveToLocalStorage()
   }
 
+  function exportProjectAsJSON() {
+    if (!currentProject.value) return
+    exportSingleProjectAsJSON(currentProject.value)
+  }
+
+  function exportAllAsJSON() {
+    exportAllProjectsAsJSON(projects.value)
+  }
+
+  async function importFromJSONFile() {
+    return new Promise((resolve, reject) => {
+      const input = document.createElement('input')
+      input.type = 'file'
+      input.accept = '.json'
+      input.onchange = async (event) => {
+        const file = event.target.files[0]
+        if (!file) {
+          reject(new Error('No file selected'))
+          return
+        }
+
+        try {
+          const text = await file.text()
+          const jsonData = JSON.parse(text)
+          const importResult = importFromJSON(jsonData)
+          
+          // Merge imported projects with existing ones
+          importResult.projects.forEach(importedProject => {
+            // Generate new ID if project already exists
+            const existingProject = projects.value.find(p => p.id === importedProject.id)
+            if (existingProject) {
+              importedProject.id = generateId()
+              importedProject.name = `${importedProject.name} (Imported)`
+            }
+            
+            // Ensure createdAt and updatedAt are set
+            if (!importedProject.createdAt) {
+              importedProject.createdAt = new Date().toISOString()
+            }
+            if (!importedProject.updatedAt) {
+              importedProject.updatedAt = new Date().toISOString()
+            }
+            
+            projects.value.push(importedProject)
+          })
+          
+          saveToLocalStorage()
+          resolve({
+            success: true,
+            imported: importResult.projects.length,
+            warnings: importResult.warnings
+          })
+        } catch (error) {
+          reject(error)
+        }
+      }
+      input.click()
+    })
+  }
+
   function setFontSize(size) {
     fontSize.value = size
     if (currentProject.value) {
@@ -738,6 +803,9 @@ export const useOutlineStore = defineStore('outline', () => {
     setLongNoteEditorActive,
     exportAsMarkdown: exportProjectAsMarkdown,
     exportAsDocx: exportProjectAsDocx,
+    exportAsJSON: exportProjectAsJSON,
+    exportAllAsJSON,
+    importFromJSONFile,
     collapseExpandAllItems,
     collapseExpandAllLongNotes,
     setFontSize,

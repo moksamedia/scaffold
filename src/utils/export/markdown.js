@@ -7,7 +7,7 @@ export function exportAsMarkdown(project) {
     let result = ''
 
     items.forEach((item, index) => {
-      const indent = '  '.repeat(level)
+      const indent = '    '.repeat(level)
 
       // Generate list marker
       let marker
@@ -33,7 +33,12 @@ export function exportAsMarkdown(project) {
         item.longNotes.forEach((note) => {
           const noteText = stripHtmlForExport(note.text)
           if (noteText.trim()) {
-            result += `${indent}  > ${noteText}\n\n`
+            result += '\n'
+            result += noteText
+              .split('\n')
+              .map((line) => `${indent}  > ${line.trim()}`)
+              .join(`  \n${indent}  >  \n`)
+            result += '\n'
           }
         })
       }
@@ -51,12 +56,28 @@ export function exportAsMarkdown(project) {
     if (!html) return ''
 
     // Convert common HTML tags to markdown equivalents
-    return html
+    let result = html
       .replace(/<strong[^>]*>(.*?)<\/strong>/gi, '**$1**')
       .replace(/<b[^>]*>(.*?)<\/b>/gi, '**$1**')
       .replace(/<em[^>]*>(.*?)<\/em>/gi, '*$1*')
       .replace(/<i[^>]*>(.*?)<\/i>/gi, '*$1*')
       .replace(/<u[^>]*>(.*?)<\/u>/gi, '$1')
+
+    // Handle blockquotes specially to preserve line breaks
+    result = result.replace(/<blockquote[^>]*>(.*?)<\/blockquote>/gis, (match, content) => {
+      const cleanContent = content
+        .replace(/<br[^>]*>/gi, '\n')
+        .replace(/<p[^>]*>/gi, '')
+        .replace(/<\/p>/gi, '\n')
+        .replace(/<[^>]*>/g, '') // Remove remaining HTML tags
+        .trim()
+
+      // Split by lines and prefix each with > for markdown blockquote
+      return cleanContent
+    })
+
+    // Handle remaining tags
+    result = result
       .replace(/<ul[^>]*>/gi, '')
       .replace(/<\/ul>/gi, '')
       .replace(/<ol[^>]*>/gi, '')
@@ -67,8 +88,9 @@ export function exportAsMarkdown(project) {
       .replace(/<\/p>/gi, '\n')
       .replace(/<br[^>]*>/gi, '\n')
       .replace(/<[^>]*>/g, '') // Remove any remaining HTML tags
-      .replace(/\n\s*\n/g, '\n') // Clean up multiple newlines
       .trim()
+
+    return result
   }
 
   markdown += processItems(project.lists, 0, project.rootListType)
