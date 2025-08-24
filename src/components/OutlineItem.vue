@@ -1,5 +1,5 @@
 <template>
-  <div class="outline-item" :class="{ 'is-root': isRoot }">
+  <div class="outline-item" :class="{ 'is-root': isRoot }" :data-item-id="item.id">
     <div class="item-content" :style="{ fontSize: fontSize + 'px' }">
       <div class="item-main">
         <div class="item-controls-left">
@@ -17,8 +17,8 @@
         </div>
 
         <div class="item-text-container">
-          <div class="item-prefix" v-if="listType === 'ordered'">{{ index + 1 }}.</div>
-          <div class="item-prefix" v-else>•</div>
+          <div class="item-prefix ordered" v-if="listType === 'ordered'">{{ index + 1 }}.</div>
+          <div class="item-prefix unordered" v-else>•</div>
 
           <div
             v-if="!isEditing"
@@ -132,7 +132,7 @@
       <div
         v-if="item.longNotes && item.longNotes.length > 0"
         class="long-notes"
-        :style="{ marginLeft: indentSize + 'px' }"
+        :style="{ marginLeft: indentSize * 2 + 'px' }"
       >
         <div v-for="note in item.longNotes" :key="note.id" class="long-note">
           <div class="long-note-header" @click="toggleLongNote(note.id)">
@@ -151,11 +151,7 @@
             <q-btn round dense flat size="xs" icon="edit" @click.stop="editLongNote(note)" />
             <q-btn round dense flat size="xs" icon="close" @click.stop="deleteLongNote(note.id)" />
           </div>
-          <div
-            v-if="!note.collapsed"
-            class="long-note-content"
-            :style="{ marginLeft: indentSize + 'px' }"
-          >
+          <div v-if="!note.collapsed" class="long-note-content">
             <div v-html="formatText(note.text)"></div>
           </div>
         </div>
@@ -222,6 +218,7 @@
               ['bold', 'italic', 'underline'],
               ['undo', 'redo'],
             ]"
+            @paste="handleLongNotePaste"
           />
         </q-card-section>
 
@@ -235,7 +232,7 @@
 </template>
 
 <script setup>
-import { ref } from 'vue'
+import { ref, computed } from 'vue'
 import { useOutlineStore } from 'stores/outline-store'
 import { storeToRefs } from 'pinia'
 
@@ -259,13 +256,13 @@ const props = defineProps({
 })
 
 const store = useOutlineStore()
-const { fontSize, indentSize, showIndentGuides } = storeToRefs(store)
+const { fontSize, indentSize, showIndentGuides, currentlyEditingId } = storeToRefs(store)
 
 const showShortNoteDialog = ref(false)
 const showLongNoteDialog = ref(false)
 const noteText = ref('')
 const editingNote = ref(null)
-const isEditing = ref(false)
+const isEditing = computed(() => currentlyEditingId.value === props.item.id)
 
 function toggleCollapse() {
   store.updateListItem(props.item.id, { collapsed: !props.item.collapsed })
@@ -280,11 +277,11 @@ function updateText(value) {
 }
 
 function startEditing() {
-  isEditing.value = true
+  store.setEditingItem(props.item.id)
 }
 
 function stopEditing() {
-  isEditing.value = false
+  store.setEditingItem(null)
 }
 
 function handleEnter() {
@@ -293,15 +290,11 @@ function handleEnter() {
 }
 
 function handleTab() {
-  if (!props.isRoot && props.index > 0) {
-    indent()
-  }
+  store.navigateToNextSibling(props.item.id)
 }
 
 function handleShiftTab() {
-  if (!props.isRoot) {
-    outdent()
-  }
+  store.navigateToNextItem(props.item.id)
 }
 
 function addChild() {
@@ -413,6 +406,19 @@ function stripHtml(text) {
   tmp.innerHTML = text
   return tmp.textContent || tmp.innerText || ''
 }
+
+function handleLongNotePaste(event) {
+  event.preventDefault()
+
+  // Get the pasted text from clipboard
+  const pastedText = (event.clipboardData || window.clipboardData).getData('text')
+
+  // Strip line breaks and replace with spaces
+  const cleanedText = pastedText.replace(/[\r\n]+/g, ' ').trim()
+
+  // Insert the cleaned text at cursor position
+  document.execCommand('insertText', false, cleanedText)
+}
 </script>
 
 <style scoped>
@@ -456,6 +462,10 @@ function stripHtml(text) {
   font-size: inherit;
   align-self: flex-start;
   padding-top: 2px;
+}
+
+.item-prefix.ordered {
+  font-size: 80%;
 }
 
 .item-text-display {
@@ -550,7 +560,7 @@ function stripHtml(text) {
 .long-note-preview {
   flex: 1;
   color: #666;
-  font-size: 0.9em;
+  font-size: 0.7em;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -559,9 +569,8 @@ function stripHtml(text) {
 
 .long-note-content {
   margin-top: 8px;
-  padding: 8px;
-  background: white;
-  border-radius: 4px;
+  font-size: 0.7em;
+  margin: 4px;
 }
 
 .item-children {

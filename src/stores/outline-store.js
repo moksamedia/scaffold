@@ -11,6 +11,7 @@ export const useOutlineStore = defineStore('outline', () => {
   const undoStack = ref([])
   const redoStack = ref([])
   const maxHistorySize = 50
+  const currentlyEditingId = ref(null)
   
   const currentProject = computed(() => {
     return projects.value.find(p => p.id === currentProjectId.value)
@@ -397,6 +398,118 @@ export const useOutlineStore = defineStore('outline', () => {
     }
   }
   
+  function findNextSibling(itemId) {
+    if (!currentProject.value) return null
+    
+    function findSiblings(items) {
+      // Check if itemId is in this level
+      const currentIndex = items.findIndex(item => item.id === itemId)
+      if (currentIndex !== -1) {
+        // Found the item, return next sibling (or first if at end)
+        const nextIndex = (currentIndex + 1) % items.length
+        return items[nextIndex]
+      }
+      
+      // Search in children
+      for (const item of items) {
+        if (item.children) {
+          const result = findSiblings(item.children)
+          if (result) return result
+        }
+      }
+      return null
+    }
+    
+    return findSiblings(currentProject.value.lists)
+  }
+  
+  function setEditingItem(itemId) {
+    currentlyEditingId.value = itemId
+  }
+  
+  function navigateToNextSibling(itemId) {
+    const nextSibling = findNextSibling(itemId)
+    if (nextSibling) {
+      currentlyEditingId.value = nextSibling.id
+      scrollToItemIfNeeded(nextSibling.id)
+    }
+    return nextSibling
+  }
+  
+  function findNextItemInOutline(itemId) {
+    if (!currentProject.value) return null
+    
+    function findItemAndNext(items, parentItems = null, parentId = null) {
+      for (let i = 0; i < items.length; i++) {
+        const item = items[i]
+        
+        if (item.id === itemId) {
+          // Found the item, now find the next item in the outline
+          
+          // 1. Check if there's a next sibling
+          if (i + 1 < items.length) {
+            return items[i + 1]
+          }
+          
+          // 2. No next sibling, go up to parent and find its next sibling
+          if (parentItems && parentId) {
+            return findNextItemInOutline(parentId)
+          }
+          
+          // 3. If we're at root level and no next sibling, return null
+          return null
+        }
+        
+        // Recursively search in children
+        if (item.children) {
+          const result = findItemAndNext(item.children, items, item.id)
+          if (result) return result
+        }
+      }
+      return null
+    }
+    
+    return findItemAndNext(currentProject.value.lists)
+  }
+  
+  function navigateToNextItem(itemId) {
+    const nextItem = findNextItemInOutline(itemId)
+    if (nextItem) {
+      currentlyEditingId.value = nextItem.id
+      scrollToItemIfNeeded(nextItem.id)
+    }
+    return nextItem
+  }
+  
+  function scrollToItemIfNeeded(itemId) {
+    // Use nextTick to ensure DOM has updated
+    setTimeout(() => {
+      const element = document.querySelector(`[data-item-id="${itemId}"]`)
+      if (!element) return
+      
+      const rect = element.getBoundingClientRect()
+      const viewportHeight = window.innerHeight
+      const viewportWidth = window.innerWidth
+      
+      // Check if element is visible in viewport
+      const isVisible = (
+        rect.top >= 0 &&
+        rect.left >= 0 &&
+        rect.bottom <= viewportHeight &&
+        rect.right <= viewportWidth
+      )
+      
+      // Only scroll if not visible
+      if (!isVisible) {
+        element.scrollIntoView({
+          behavior: 'smooth',
+          block: 'center',
+          inline: 'nearest'
+        })
+      }
+    }, 0)
+  }
+  
   function setFontSize(size) {
     fontSize.value = size
     if (currentProject.value) {
@@ -560,6 +673,11 @@ export const useOutlineStore = defineStore('outline', () => {
     outdentItem,
     toggleRootListType,
     toggleChildrenListType,
+    findNextSibling,
+    setEditingItem,
+    navigateToNextSibling,
+    navigateToNextItem,
+    currentlyEditingId,
     setFontSize,
     setIndentSize,
     setDefaultListType,
