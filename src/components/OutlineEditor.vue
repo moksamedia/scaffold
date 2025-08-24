@@ -38,6 +38,15 @@
             </q-list>
           </q-menu>
         </q-btn>
+        <q-btn 
+          round 
+          dense 
+          flat 
+          :icon="allLongNotesVisible ? 'visibility' : 'visibility_off'"
+          @click="toggleAllLongNotesVisibility"
+        >
+          <q-tooltip>{{ allLongNotesVisible ? 'Hide' : 'Show' }} All Long Notes</q-tooltip>
+        </q-btn>
         <q-separator vertical inset class="q-mx-sm" />
         <q-btn
           round
@@ -109,7 +118,7 @@ import { useQuasar } from 'quasar'
 import OutlineItem from './OutlineItem.vue'
 
 const store = useOutlineStore()
-const { currentProject, canUndo, canRedo } = storeToRefs(store)
+const { currentProject, canUndo, canRedo, allLongNotesVisible } = storeToRefs(store)
 const $q = useQuasar()
 
 const isMac = computed(() => navigator.platform.toUpperCase().indexOf('MAC') >= 0)
@@ -181,6 +190,10 @@ function collapseAllNotes() {
 
 function expandAllNotes() {
   store.collapseExpandAllLongNotes(false)
+}
+
+function toggleAllLongNotesVisibility() {
+  store.showHideAllLongNotes(!allLongNotesVisible.value)
 }
 </script>
 

@@ -134,7 +134,7 @@
         class="long-notes"
         :style="{ marginLeft: indentSize * 2 + 'px' }"
       >
-        <div v-for="note in item.longNotes" :key="note.id" class="long-note">
+        <div v-for="note in item.longNotes" :key="note.id" v-show="!note.hidden" class="long-note">
           <div class="long-note-header" @click="toggleLongNote(note.id)">
             <q-btn
               round

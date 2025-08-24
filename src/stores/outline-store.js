@@ -571,6 +571,31 @@ export const useOutlineStore = defineStore('outline', () => {
     saveToLocalStorage()
   }
 
+  const allLongNotesVisible = ref(true)
+
+  function showHideAllLongNotes(show = true) {
+    if (!currentProject.value) return
+
+    function updateNotesVisibility(items) {
+      items.forEach(item => {
+        if (item.longNotes && item.longNotes.length > 0) {
+          item.longNotes.forEach(note => {
+            note.hidden = !show
+          })
+        }
+        if (item.children && item.children.length > 0) {
+          updateNotesVisibility(item.children)
+        }
+      })
+    }
+
+    allLongNotesVisible.value = show
+    saveState(show ? 'Show all long notes' : 'Hide all long notes')
+    updateNotesVisibility(currentProject.value.lists)
+    currentProject.value.updatedAt = new Date().toISOString()
+    saveToLocalStorage()
+  }
+
   function exportProjectAsJSON() {
     if (!currentProject.value) return
     exportSingleProjectAsJSON(currentProject.value)
@@ -1046,6 +1071,8 @@ export const useOutlineStore = defineStore('outline', () => {
     importFromJSONFile,
     collapseExpandAllItems,
     collapseExpandAllLongNotes,
+    allLongNotesVisible,
+    showHideAllLongNotes,
     setFontSize,
     setIndentSize,
     setDefaultListType,
