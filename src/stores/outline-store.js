@@ -688,6 +688,244 @@ export const useOutlineStore = defineStore('outline', () => {
     localStorage.setItem('outline-show-indent-guides', showIndentGuides.value.toString())
   }
 
+  function createExampleProject() {
+    const project = {
+      id: generateId(),
+      name: '📋 Welcome to Scaffold (Example Project)',
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      lists: [
+        {
+          id: generateId(),
+          text: 'Getting Started with Scaffold',
+          collapsed: false,
+          childrenType: 'ordered',
+          shortNotes: [],
+          longNotes: [{
+            id: generateId(),
+            text: '<p>Welcome to <strong>Scaffold</strong>! This example project demonstrates the key features of this powerful hierarchical outline and note-taking application.</p><p>Feel free to explore, edit, or delete this project once you\'re familiar with the interface.</p>',
+            collapsed: false
+          }],
+          children: [
+            {
+              id: generateId(),
+              text: 'Create and organize hierarchical outlines',
+              collapsed: false,
+              childrenType: 'unordered',
+              shortNotes: [{
+                id: generateId(),
+                text: 'unlimited depth'
+              }],
+              longNotes: [],
+              children: [
+                {
+                  id: generateId(),
+                  text: 'Use Tab key to navigate between items',
+                  collapsed: false,
+                  childrenType: 'ordered',
+                  shortNotes: [],
+                  longNotes: [],
+                  children: []
+                },
+                {
+                  id: generateId(),
+                  text: 'Press Enter to create new sibling items',
+                  collapsed: false,
+                  childrenType: 'ordered',
+                  shortNotes: [],
+                  longNotes: [],
+                  children: []
+                },
+                {
+                  id: generateId(),
+                  text: 'Toggle between numbered and bullet lists',
+                  collapsed: false,
+                  childrenType: 'ordered',
+                  shortNotes: [],
+                  longNotes: [],
+                  children: []
+                }
+              ]
+            },
+            {
+              id: generateId(),
+              text: 'Add notes to provide context and details',
+              collapsed: false,
+              childrenType: 'unordered',
+              shortNotes: [],
+              longNotes: [],
+              children: [
+                {
+                  id: generateId(),
+                  text: 'Short notes for quick references',
+                  collapsed: false,
+                  childrenType: 'ordered',
+                  shortNotes: [{
+                    id: generateId(),
+                    text: 'like page numbers or brief citations'
+                  }],
+                  longNotes: [],
+                  children: []
+                },
+                {
+                  id: generateId(),
+                  text: 'Long notes for detailed explanations',
+                  collapsed: false,
+                  childrenType: 'ordered',
+                  shortNotes: [],
+                  longNotes: [{
+                    id: generateId(),
+                    text: '<p>Long notes support <strong>rich text formatting</strong> including:</p><ul><li>Bold and italic text</li><li>Lists and quotes</li><li>Links and images</li><li>Code blocks</li></ul><blockquote><p>This is a blockquote example that will export beautifully to Word and Markdown formats.</p></blockquote>',
+                    collapsed: false
+                  }],
+                  children: []
+                }
+              ]
+            }
+          ]
+        },
+        {
+          id: generateId(),
+          text: 'Key Features to Explore',
+          collapsed: false,
+          childrenType: 'ordered',
+          shortNotes: [],
+          longNotes: [],
+          children: [
+            {
+              id: generateId(),
+              text: 'Export your work in multiple formats',
+              collapsed: false,
+              childrenType: 'unordered',
+              shortNotes: [],
+              longNotes: [],
+              children: [
+                {
+                  id: generateId(),
+                  text: 'Markdown export for documentation and web publishing',
+                  collapsed: false,
+                  childrenType: 'ordered',
+                  shortNotes: [],
+                  longNotes: [],
+                  children: []
+                },
+                {
+                  id: generateId(),
+                  text: 'Microsoft Word export with proper styles and formatting',
+                  collapsed: false,
+                  childrenType: 'ordered',
+                  shortNotes: [],
+                  longNotes: [],
+                  children: []
+                },
+                {
+                  id: generateId(),
+                  text: 'JSON export for complete backup and data portability',
+                  collapsed: false,
+                  childrenType: 'ordered',
+                  shortNotes: [],
+                  longNotes: [],
+                  children: []
+                }
+              ]
+            },
+            {
+              id: generateId(),
+              text: 'Keyboard shortcuts for efficient editing',
+              collapsed: false,
+              childrenType: 'unordered',
+              shortNotes: [{
+                id: generateId(),
+                text: 'see help for full list'
+              }],
+              longNotes: [],
+              children: [
+                {
+                  id: generateId(),
+                  text: 'Ctrl/Cmd + Z/Y for undo/redo',
+                  collapsed: false,
+                  childrenType: 'ordered',
+                  shortNotes: [],
+                  longNotes: [],
+                  children: []
+                },
+                {
+                  id: generateId(),
+                  text: 'Ctrl/Cmd + B to toggle sidebar',
+                  collapsed: false,
+                  childrenType: 'ordered',
+                  shortNotes: [],
+                  longNotes: [],
+                  children: []
+                },
+                {
+                  id: generateId(),
+                  text: 'Tab/Shift+Tab for navigation',
+                  collapsed: false,
+                  childrenType: 'ordered',
+                  shortNotes: [],
+                  longNotes: [],
+                  children: []
+                }
+              ]
+            },
+            {
+              id: generateId(),
+              text: 'Bulk operations and customization',
+              collapsed: false,
+              childrenType: 'unordered',
+              shortNotes: [],
+              longNotes: [],
+              children: [
+                {
+                  id: generateId(),
+                  text: 'Collapse/expand all items or notes at once',
+                  collapsed: false,
+                  childrenType: 'ordered',
+                  shortNotes: [],
+                  longNotes: [],
+                  children: []
+                },
+                {
+                  id: generateId(),
+                  text: 'Customize font size, indentation, and display options per project',
+                  collapsed: false,
+                  childrenType: 'ordered',
+                  shortNotes: [],
+                  longNotes: [],
+                  children: []
+                }
+              ]
+            }
+          ]
+        },
+        {
+          id: generateId(),
+          text: 'Next Steps',
+          collapsed: false,
+          childrenType: 'ordered',
+          shortNotes: [],
+          longNotes: [{
+            id: generateId(),
+            text: '<p>Ready to start your own project? Here\'s what you can do:</p><ol><li>Create a new project using the + button in the sidebar</li><li>Import existing data using the JSON import feature</li><li>Explore the settings to customize your experience</li><li>Export this example project to see how different formats work</li></ol><p>Happy outlining! 🎉</p>',
+            collapsed: false
+          }],
+          children: []
+        }
+      ],
+      rootListType: 'ordered',
+      settings: {
+        fontSize: fontSize.value,
+        indentSize: indentSize.value,
+        defaultListType: defaultListType.value,
+        showIndentGuides: showIndentGuides.value,
+      },
+    }
+    projects.value.push(project)
+    saveToLocalStorage()
+    return project
+  }
+
   function loadFromLocalStorage() {
     const savedProjects = localStorage.getItem('outline-projects')
     const savedCurrentId = localStorage.getItem('outline-current-project')
@@ -759,8 +997,8 @@ export const useOutlineStore = defineStore('outline', () => {
     }
 
     if (projects.value.length === 0) {
-      const defaultProject = createProject('My First Project')
-      currentProjectId.value = defaultProject.id
+      const exampleProject = createExampleProject()
+      currentProjectId.value = exampleProject.id
     }
   }
 
