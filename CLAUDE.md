@@ -6,7 +6,7 @@ All changes should be committed before and after making large changes to code or
 
 # Application Overview
 
-This is a Quasar Vue 3 application for creating and managing hierarchical outline lists with note-taking capabilities.
+Scaffold is a Quasar Vue 3 application for creating and managing hierarchical outline lists with note-taking capabilities.
 
 ## Core Features
 - Multiple projects with individual settings

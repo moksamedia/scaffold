@@ -1,4 +1,4 @@
-# Outline Maker
+# Scaffold
 
 A powerful hierarchical outline and note-taking application built with Vue 3 and Quasar Framework.
 
@@ -32,7 +32,7 @@ A powerful hierarchical outline and note-taking application built with Vue 3 and
 1. **Clone the repository**
    ```bash
    git clone <repository-url>
-   cd outline-maker
+   cd scaffold
    ```
 
 2. **Install dependencies**

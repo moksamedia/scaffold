@@ -1,8 +1,8 @@
 {
-  "name": "outline-maker",
+  "name": "scaffold",
   "version": "0.0.1",
-  "description": "A Quasar Project",
-  "productName": "Outline Maker",
+  "description": "A powerful hierarchical outline and note-taking application",
+  "productName": "Scaffold",
   "author": "Andrew Hughes <andrewcarterhughes@gmail.com>",
   "type": "module",
   "private": true,

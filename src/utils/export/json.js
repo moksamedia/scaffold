@@ -1,4 +1,4 @@
-// JSON Export/Import for Outline Maker
+// JSON Export/Import for Scaffold
 // Preserves complete project structure and metadata
 
 /**
@@ -6,7 +6,7 @@
  * {
  *   "formatVersion": "1.0",
  *   "exportedAt": "2024-08-24T10:30:00.000Z",
- *   "application": "Outline Maker",
+ *   "application": "Scaffold",
  *   "projects": [
  *     {
  *       "id": "project123",
@@ -30,7 +30,7 @@ export function exportAsJSON(projects, selectedProjectId = null) {
   const exportData = {
     formatVersion: "1.0",
     exportedAt: new Date().toISOString(),
-    application: "Outline Maker",
+    application: "Scaffold",
     projects: []
   }
 
@@ -114,7 +114,7 @@ export function validateImportData(data) {
     errors.push('Missing formatVersion')
   }
   
-  if (!data.application || data.application !== 'Outline Maker') {
+  if (!data.application || data.application !== 'Scaffold') {
     errors.push('Invalid or missing application identifier')
   }
 

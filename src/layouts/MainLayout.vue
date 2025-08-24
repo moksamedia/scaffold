@@ -12,7 +12,7 @@
         >
           <q-tooltip>Toggle Sidebar ({{ isMac ? 'Cmd' : 'Ctrl' }}+B)</q-tooltip>
         </q-btn>
-        <q-toolbar-title>Outline Maker</q-toolbar-title>
+        <q-toolbar-title>Scaffold</q-toolbar-title>
       </q-toolbar>
     </q-header>
 
