@@ -5,13 +5,86 @@ export const useOutlineStore = defineStore('outline', () => {
   const projects = ref([])
   const currentProjectId = ref(null)
   const fontSize = ref(14)
+  const undoStack = ref([])
+  const redoStack = ref([])
+  const maxHistorySize = 50
   
   const currentProject = computed(() => {
     return projects.value.find(p => p.id === currentProjectId.value)
   })
   
+  const canUndo = computed(() => undoStack.value.length > 0)
+  const canRedo = computed(() => redoStack.value.length > 0)
+  
   function generateId() {
     return Date.now().toString(36) + Math.random().toString(36).substr(2)
+  }
+  
+  function saveState(description = '') {
+    if (!currentProject.value) return
+    
+    const state = {
+      projectId: currentProjectId.value,
+      lists: JSON.parse(JSON.stringify(currentProject.value.lists)),
+      rootListType: currentProject.value.rootListType,
+      description,
+      timestamp: Date.now()
+    }
+    
+    undoStack.value.push(state)
+    if (undoStack.value.length > maxHistorySize) {
+      undoStack.value.shift()
+    }
+    redoStack.value = []
+  }
+  
+  function undo() {
+    if (!canUndo.value || !currentProject.value) return
+    
+    const currentState = {
+      projectId: currentProjectId.value,
+      lists: JSON.parse(JSON.stringify(currentProject.value.lists)),
+      rootListType: currentProject.value.rootListType,
+      timestamp: Date.now()
+    }
+    
+    const previousState = undoStack.value.pop()
+    if (previousState.projectId === currentProjectId.value) {
+      redoStack.value.push(currentState)
+      currentProject.value.lists = previousState.lists
+      currentProject.value.rootListType = previousState.rootListType
+      currentProject.value.updatedAt = new Date().toISOString()
+      saveToLocalStorage()
+    } else {
+      undoStack.value.push(previousState)
+    }
+  }
+  
+  function redo() {
+    if (!canRedo.value || !currentProject.value) return
+    
+    const currentState = {
+      projectId: currentProjectId.value,
+      lists: JSON.parse(JSON.stringify(currentProject.value.lists)),
+      rootListType: currentProject.value.rootListType,
+      timestamp: Date.now()
+    }
+    
+    const nextState = redoStack.value.pop()
+    if (nextState.projectId === currentProjectId.value) {
+      undoStack.value.push(currentState)
+      currentProject.value.lists = nextState.lists
+      currentProject.value.rootListType = nextState.rootListType
+      currentProject.value.updatedAt = new Date().toISOString()
+      saveToLocalStorage()
+    } else {
+      redoStack.value.push(nextState)
+    }
+  }
+  
+  function clearHistory() {
+    undoStack.value = []
+    redoStack.value = []
   }
   
   function createProject(name) {
@@ -50,6 +123,7 @@ export const useOutlineStore = defineStore('outline', () => {
   
   function selectProject(projectId) {
     currentProjectId.value = projectId
+    clearHistory()
     saveToLocalStorage()
   }
   
@@ -69,6 +143,7 @@ export const useOutlineStore = defineStore('outline', () => {
   function addRootListItem() {
     if (!currentProject.value) return
     
+    saveState('Add root item')
     const newItem = createListItem('New Item')
     currentProject.value.lists.push(newItem)
     currentProject.value.updatedAt = new Date().toISOString()
@@ -90,6 +165,7 @@ export const useOutlineStore = defineStore('outline', () => {
     
     const item = findItemById(currentProject.value.lists, itemId)
     if (item) {
+      saveState('Update item')
       Object.assign(item, updates)
       currentProject.value.updatedAt = new Date().toISOString()
       saveToLocalStorage()
@@ -101,6 +177,7 @@ export const useOutlineStore = defineStore('outline', () => {
     
     const parent = findItemById(currentProject.value.lists, parentId)
     if (parent) {
+      saveState('Add child item')
       const newItem = createListItem('New Item', parentId)
       parent.children.push(newItem)
       parent.collapsed = false
@@ -125,6 +202,7 @@ export const useOutlineStore = defineStore('outline', () => {
       return false
     }
     
+    saveState('Delete item')
     if (removeFromList(currentProject.value.lists)) {
       currentProject.value.updatedAt = new Date().toISOString()
       saveToLocalStorage()
@@ -225,6 +303,7 @@ export const useOutlineStore = defineStore('outline', () => {
       return false
     }
     
+    saveState(`Move item ${direction}`)
     if (moveInList(currentProject.value.lists)) {
       currentProject.value.updatedAt = new Date().toISOString()
       saveToLocalStorage()
@@ -247,6 +326,7 @@ export const useOutlineStore = defineStore('outline', () => {
       return false
     }
     
+    saveState('Indent item')
     if (findAndIndent(currentProject.value.lists)) {
       currentProject.value.updatedAt = new Date().toISOString()
       saveToLocalStorage()
@@ -270,6 +350,7 @@ export const useOutlineStore = defineStore('outline', () => {
       return false
     }
     
+    saveState('Outdent item')
     if (findAndOutdent(currentProject.value.lists, null, null)) {
       currentProject.value.updatedAt = new Date().toISOString()
       saveToLocalStorage()
@@ -279,6 +360,7 @@ export const useOutlineStore = defineStore('outline', () => {
   function toggleRootListType() {
     if (!currentProject.value) return
     
+    saveState('Toggle root list type')
     currentProject.value.rootListType = currentProject.value.rootListType === 'ordered' ? 'unordered' : 'ordered'
     currentProject.value.updatedAt = new Date().toISOString()
     saveToLocalStorage()
@@ -289,6 +371,7 @@ export const useOutlineStore = defineStore('outline', () => {
     
     const item = findItemById(currentProject.value.lists, itemId)
     if (item) {
+      saveState('Toggle children list type')
       item.childrenType = item.childrenType === 'ordered' ? 'unordered' : 'ordered'
       currentProject.value.updatedAt = new Date().toISOString()
       saveToLocalStorage()
@@ -363,6 +446,8 @@ export const useOutlineStore = defineStore('outline', () => {
     currentProjectId,
     currentProject,
     fontSize,
+    canUndo,
+    canRedo,
     createProject,
     deleteProject,
     renameProject,
@@ -381,6 +466,9 @@ export const useOutlineStore = defineStore('outline', () => {
     outdentItem,
     toggleRootListType,
     toggleChildrenListType,
-    setFontSize
+    setFontSize,
+    undo,
+    redo,
+    clearHistory
   }
 })

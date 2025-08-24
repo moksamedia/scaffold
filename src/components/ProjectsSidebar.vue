@@ -11,18 +11,11 @@
       <div class="q-pa-md">
         <div class="row items-center q-mb-md">
           <div class="col text-h6">Projects</div>
-          <q-btn
-            round
-            dense
-            flat
-            icon="add"
-            size="sm"
-            @click="showNewProjectDialog = true"
-          >
+          <q-btn round dense flat icon="add" size="sm" @click="showNewProjectDialog = true">
             <q-tooltip>New Project</q-tooltip>
           </q-btn>
         </div>
-        
+
         <div class="q-mb-md">
           <div class="text-caption text-grey-8 q-mb-xs">Font Size</div>
           <div class="row items-center q-gutter-xs">
@@ -35,7 +28,7 @@
               :disable="fontSize <= 10"
               @click="decreaseFontSize"
             />
-            <div class="text-body2" style="min-width: 40px; text-align: center;">
+            <div class="text-body2" style="min-width: 40px; text-align: center">
               {{ fontSize }}px
             </div>
             <q-btn
@@ -49,8 +42,8 @@
             />
             <q-slider
               v-model="fontSize"
-              :min="10"
-              :max="24"
+              :min="12"
+              :max="40"
               :step="1"
               color="primary"
               class="col q-ml-sm"
@@ -58,7 +51,7 @@
             />
           </div>
         </div>
-        
+
         <q-list>
           <q-item
             v-for="project in projects"
@@ -76,7 +69,7 @@
                 {{ formatDate(project.updatedAt) }}
               </q-item-label>
             </q-item-section>
-            
+
             <q-item-section v-else>
               <q-input
                 v-model="editingProjectName"
@@ -87,7 +80,7 @@
                 @blur="saveProjectName"
               />
             </q-item-section>
-            
+
             <q-item-section side v-if="editingProjectId !== project.id">
               <div class="text-grey-8 q-gutter-xs">
                 <q-btn
@@ -116,13 +109,13 @@
         </q-list>
       </div>
     </q-scroll-area>
-    
+
     <q-dialog v-model="showNewProjectDialog">
       <q-card style="min-width: 350px">
         <q-card-section>
           <div class="text-h6">New Project</div>
         </q-card-section>
-        
+
         <q-card-section class="q-pt-none">
           <q-input
             v-model="newProjectName"
@@ -131,7 +124,7 @@
             @keyup.enter="createNewProject"
           />
         </q-card-section>
-        
+
         <q-card-actions align="right">
           <q-btn flat label="Cancel" v-close-popup />
           <q-btn
@@ -144,25 +137,21 @@
         </q-card-actions>
       </q-card>
     </q-dialog>
-    
+
     <q-dialog v-model="showDeleteDialog">
       <q-card>
         <q-card-section>
           <div class="text-h6">Delete Project</div>
         </q-card-section>
-        
+
         <q-card-section class="q-pt-none">
-          Are you sure you want to delete "{{ projectToDelete?.name }}"? This action cannot be undone.
+          Are you sure you want to delete "{{ projectToDelete?.name }}"? This action cannot be
+          undone.
         </q-card-section>
-        
+
         <q-card-actions align="right">
           <q-btn flat label="Cancel" v-close-popup />
-          <q-btn
-            flat
-            label="Delete"
-            color="negative"
-            @click="deleteSelectedProject"
-          />
+          <q-btn flat label="Delete" color="negative" @click="deleteSelectedProject" />
         </q-card-actions>
       </q-card>
     </q-dialog>
@@ -233,7 +222,7 @@ function formatDate(dateString) {
   const now = new Date()
   const diffTime = Math.abs(now - date)
   const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24))
-  
+
   if (diffDays === 0) {
     const diffHours = Math.floor(diffTime / (1000 * 60 * 60))
     if (diffHours === 0) {

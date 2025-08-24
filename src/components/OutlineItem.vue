@@ -9,6 +9,7 @@
             dense
             flat
             size="xs"
+            style="width: 24px"
             :icon="item.collapsed ? 'chevron_right' : 'expand_more'"
             @click="toggleCollapse"
           />
@@ -72,17 +73,21 @@
                 <q-item clickable v-close-popup @click="addSibling">
                   <q-item-section>Add Sibling</q-item-section>
                 </q-item>
-                <q-item 
-                  v-if="item.children && item.children.length > 0" 
-                  clickable 
-                  v-close-popup 
+                <q-item
+                  v-if="item.children && item.children.length > 0"
+                  clickable
+                  v-close-popup
                   @click="toggleChildrenListType"
                 >
                   <q-item-section>
                     <div class="row items-center">
-                      <q-icon 
-                        :name="item.childrenType === 'ordered' ? 'format_list_numbered' : 'format_list_bulleted'" 
-                        size="xs" 
+                      <q-icon
+                        :name="
+                          item.childrenType === 'ordered'
+                            ? 'format_list_numbered'
+                            : 'format_list_bulleted'
+                        "
+                        size="xs"
                         class="q-mr-xs"
                       />
                       Toggle Children Type
@@ -124,9 +129,8 @@
               @click.stop="toggleLongNote(note.id)"
             />
             <span v-if="note.collapsed" class="long-note-preview">
-              Note: {{ stripHtml(note.text) }}...
+              {{ stripHtml(note.text) }}...
             </span>
-            <span v-else class="long-note-label">Note</span>
             <q-space />
             <q-btn round dense flat size="xs" icon="edit" @click.stop="editLongNote(note)" />
             <q-btn round dense flat size="xs" icon="close" @click.stop="deleteLongNote(note.id)" />
