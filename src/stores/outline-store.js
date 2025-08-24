@@ -7,6 +7,7 @@ export const useOutlineStore = defineStore('outline', () => {
   const fontSize = ref(14)
   const indentSize = ref(32)
   const defaultListType = ref('ordered')
+  const showIndentGuides = ref(true)
   const undoStack = ref([])
   const redoStack = ref([])
   const maxHistorySize = 50
@@ -395,12 +396,18 @@ export const useOutlineStore = defineStore('outline', () => {
     saveToLocalStorage()
   }
   
+  function setShowIndentGuides(show) {
+    showIndentGuides.value = show
+    saveToLocalStorage()
+  }
+  
   function saveToLocalStorage() {
     localStorage.setItem('outline-projects', JSON.stringify(projects.value))
     localStorage.setItem('outline-current-project', currentProjectId.value || '')
     localStorage.setItem('outline-font-size', fontSize.value.toString())
     localStorage.setItem('outline-indent-size', indentSize.value.toString())
     localStorage.setItem('outline-default-list-type', defaultListType.value)
+    localStorage.setItem('outline-show-indent-guides', showIndentGuides.value.toString())
   }
   
   function loadFromLocalStorage() {
@@ -409,6 +416,7 @@ export const useOutlineStore = defineStore('outline', () => {
     const savedFontSize = localStorage.getItem('outline-font-size')
     const savedIndentSize = localStorage.getItem('outline-indent-size')
     const savedDefaultListType = localStorage.getItem('outline-default-list-type')
+    const savedShowIndentGuides = localStorage.getItem('outline-show-indent-guides')
     
     if (savedFontSize) {
       fontSize.value = parseInt(savedFontSize, 10)
@@ -420,6 +428,10 @@ export const useOutlineStore = defineStore('outline', () => {
     
     if (savedDefaultListType) {
       defaultListType.value = savedDefaultListType
+    }
+    
+    if (savedShowIndentGuides !== null) {
+      showIndentGuides.value = savedShowIndentGuides === 'true'
     }
     
     if (savedProjects) {
@@ -472,6 +484,7 @@ export const useOutlineStore = defineStore('outline', () => {
     fontSize,
     indentSize,
     defaultListType,
+    showIndentGuides,
     canUndo,
     canRedo,
     createProject,
@@ -495,6 +508,7 @@ export const useOutlineStore = defineStore('outline', () => {
     setFontSize,
     setIndentSize,
     setDefaultListType,
+    setShowIndentGuides,
     undo,
     redo,
     clearHistory

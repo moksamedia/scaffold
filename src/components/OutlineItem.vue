@@ -165,6 +165,7 @@
     <div
       v-if="!item.collapsed && item.children && item.children.length > 0"
       class="item-children"
+      :class="{ 'with-guide': showIndentGuides }"
       :style="{ marginLeft: indentSize + 'px' }"
     >
       <OutlineItem
@@ -258,7 +259,7 @@ const props = defineProps({
 })
 
 const store = useOutlineStore()
-const { fontSize, indentSize } = storeToRefs(store)
+const { fontSize, indentSize, showIndentGuides } = storeToRefs(store)
 
 const showShortNoteDialog = ref(false)
 const showLongNoteDialog = ref(false)
@@ -565,6 +566,9 @@ function stripHtml(text) {
 
 .item-children {
   margin-top: 4px;
+}
+
+.item-children.with-guide {
   border-left: 2px solid rgb(151, 201, 245);
 }
 

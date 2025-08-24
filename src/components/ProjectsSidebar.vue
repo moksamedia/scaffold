@@ -101,6 +101,15 @@
           />
         </div>
 
+        <div class="q-mb-md">
+          <q-toggle
+            v-model="showIndentGuides"
+            label="Show Indent Guides"
+            color="primary"
+            @update:model-value="updateShowIndentGuides"
+          />
+        </div>
+
         <q-list>
           <q-item
             v-for="project in projects"
@@ -213,7 +222,7 @@ import { useOutlineStore } from 'stores/outline-store'
 import { storeToRefs } from 'pinia'
 
 const store = useOutlineStore()
-const { projects, currentProjectId, fontSize, indentSize, defaultListType } = storeToRefs(store)
+const { projects, currentProjectId, fontSize, indentSize, defaultListType, showIndentGuides } = storeToRefs(store)
 
 const drawerOpen = ref(true)
 const showNewProjectDialog = ref(false)
@@ -327,6 +336,10 @@ function updateIndentSize(value) {
 
 function updateDefaultListType(value) {
   store.setDefaultListType(value)
+}
+
+function updateShowIndentGuides(value) {
+  store.setShowIndentGuides(value)
 }
 
 function toggleDrawer() {
