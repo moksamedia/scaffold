@@ -207,7 +207,7 @@
         <q-card-section class="row items-center">
           <div class="text-h6">{{ editingNote ? 'Edit' : 'Add' }} Long Note</div>
           <q-space />
-          <q-btn icon="close" flat round dense v-close-popup />
+          <q-btn icon="close" flat round dense @click="closeLongNoteDialog" />
         </q-card-section>
 
         <q-card-section class="q-pt-none">
@@ -225,7 +225,7 @@
         </q-card-section>
 
         <q-card-actions align="right">
-          <q-btn flat label="Cancel" v-close-popup />
+          <q-btn flat label="Cancel" @click="closeLongNoteDialog" />
           <q-btn flat label="Save" color="primary" @click="saveLongNote" />
         </q-card-actions>
       </q-card>
@@ -234,7 +234,7 @@
 </template>
 
 <script setup>
-import { ref, computed } from 'vue'
+import { ref, computed, watch } from 'vue'
 import { useOutlineStore } from 'stores/outline-store'
 import { storeToRefs } from 'pinia'
 
@@ -265,6 +265,11 @@ const showLongNoteDialog = ref(false)
 const noteText = ref('')
 const editingNote = ref(null)
 const isEditing = computed(() => currentlyEditingId.value === props.item.id)
+
+// Watch for long note dialog state changes to update global state
+watch(showLongNoteDialog, (isOpen) => {
+  store.setLongNoteEditorActive(isOpen)
+})
 
 function toggleCollapse() {
   store.updateListItem(props.item.id, { collapsed: !props.item.collapsed })
@@ -379,10 +384,14 @@ function saveLongNote() {
     } else {
       store.addLongNote(props.item.id, noteText.value.trim())
     }
-    showLongNoteDialog.value = false
-    noteText.value = ''
-    editingNote.value = null
   }
+  closeLongNoteDialog()
+}
+
+function closeLongNoteDialog() {
+  showLongNoteDialog.value = false
+  noteText.value = ''
+  editingNote.value = null
 }
 
 function deleteLongNote(noteId) {
@@ -465,7 +474,7 @@ function handleLongNotePaste(event) {
   flex-shrink: 0;
   font-size: inherit;
   align-self: flex-start;
-  padding-top: 2px;
+  padding-top: 8px;
 }
 
 .item-prefix.ordered {

@@ -50,10 +50,11 @@ This is a Quasar Vue 3 application for creating and managing hierarchical outlin
 - Reactive Vue 3 Composition API throughout
 - Pinia for centralized state management
 - Recursive component rendering for infinite nesting
-- Command pattern for undo/redo
+- Command pattern for undo/redo with context-aware keyboard handling
 - Click-to-edit pattern for text input
 - Per-project settings architecture
 - Conditional scrolling for keyboard navigation
+- State watchers for dialog lifecycle management
 
 ### Recent Implementations
 - Per-project settings storage (font size, indent size, list type, indent guides)
@@ -69,3 +70,4 @@ This is a Quasar Vue 3 application for creating and managing hierarchical outlin
   - Configurable indentation parameters
 - Bulk operations: collapse/expand all items and all long notes separately
 - Modular export architecture with separate utility files
+- Context-aware keyboard shortcuts: undo/redo directed to long note editor when active

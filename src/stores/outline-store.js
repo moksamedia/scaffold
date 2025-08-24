@@ -15,6 +15,7 @@ export const useOutlineStore = defineStore('outline', () => {
   const redoStack = ref([])
   const maxHistorySize = 50
   const currentlyEditingId = ref(null)
+  const longNoteEditorActive = ref(false)
 
   const currentProject = computed(() => {
     return projects.value.find((p) => p.id === currentProjectId.value)
@@ -431,6 +432,10 @@ export const useOutlineStore = defineStore('outline', () => {
     currentlyEditingId.value = itemId
   }
 
+  function setLongNoteEditorActive(active) {
+    longNoteEditorActive.value = active
+  }
+
   function navigateToNextSibling(itemId) {
     const nextSibling = findNextSibling(itemId)
     if (nextSibling) {
@@ -729,6 +734,8 @@ export const useOutlineStore = defineStore('outline', () => {
     navigateToNextSibling,
     navigateToNextItem,
     currentlyEditingId,
+    longNoteEditorActive,
+    setLongNoteEditorActive,
     exportAsMarkdown: exportProjectAsMarkdown,
     exportAsDocx: exportProjectAsDocx,
     collapseExpandAllItems,
