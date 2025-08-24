@@ -6,6 +6,7 @@ export const useOutlineStore = defineStore('outline', () => {
   const currentProjectId = ref(null)
   const fontSize = ref(14)
   const indentSize = ref(32)
+  const defaultListType = ref('ordered')
   const undoStack = ref([])
   const redoStack = ref([])
   const maxHistorySize = 50
@@ -95,7 +96,7 @@ export const useOutlineStore = defineStore('outline', () => {
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
       lists: [],
-      rootListType: 'unordered'
+      rootListType: defaultListType.value
     }
     projects.value.push(project)
     saveToLocalStorage()
@@ -136,7 +137,7 @@ export const useOutlineStore = defineStore('outline', () => {
       shortNotes: [],
       longNotes: [],
       children: [],
-      childrenType: 'unordered',
+      childrenType: defaultListType.value,
       parentId
     }
   }
@@ -389,11 +390,17 @@ export const useOutlineStore = defineStore('outline', () => {
     saveToLocalStorage()
   }
   
+  function setDefaultListType(type) {
+    defaultListType.value = type
+    saveToLocalStorage()
+  }
+  
   function saveToLocalStorage() {
     localStorage.setItem('outline-projects', JSON.stringify(projects.value))
     localStorage.setItem('outline-current-project', currentProjectId.value || '')
     localStorage.setItem('outline-font-size', fontSize.value.toString())
     localStorage.setItem('outline-indent-size', indentSize.value.toString())
+    localStorage.setItem('outline-default-list-type', defaultListType.value)
   }
   
   function loadFromLocalStorage() {
@@ -401,6 +408,7 @@ export const useOutlineStore = defineStore('outline', () => {
     const savedCurrentId = localStorage.getItem('outline-current-project')
     const savedFontSize = localStorage.getItem('outline-font-size')
     const savedIndentSize = localStorage.getItem('outline-indent-size')
+    const savedDefaultListType = localStorage.getItem('outline-default-list-type')
     
     if (savedFontSize) {
       fontSize.value = parseInt(savedFontSize, 10)
@@ -410,22 +418,26 @@ export const useOutlineStore = defineStore('outline', () => {
       indentSize.value = parseInt(savedIndentSize, 10)
     }
     
+    if (savedDefaultListType) {
+      defaultListType.value = savedDefaultListType
+    }
+    
     if (savedProjects) {
       try {
         projects.value = JSON.parse(savedProjects)
         // Migrate old data structure
         projects.value.forEach(project => {
           if (!project.rootListType) {
-            project.rootListType = 'unordered'
+            project.rootListType = 'ordered'
           }
           function migrateItems(items) {
             items.forEach(item => {
               if (item.type && !item.childrenType) {
-                item.childrenType = 'unordered'
+                item.childrenType = 'ordered'
                 delete item.type
               }
               if (!item.childrenType) {
-                item.childrenType = 'unordered'
+                item.childrenType = 'ordered'
               }
               if (item.children) {
                 migrateItems(item.children)
@@ -459,6 +471,7 @@ export const useOutlineStore = defineStore('outline', () => {
     currentProject,
     fontSize,
     indentSize,
+    defaultListType,
     canUndo,
     canRedo,
     createProject,
@@ -481,6 +494,7 @@ export const useOutlineStore = defineStore('outline', () => {
     toggleChildrenListType,
     setFontSize,
     setIndentSize,
+    setDefaultListType,
     undo,
     redo,
     clearHistory

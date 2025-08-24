@@ -129,8 +129,8 @@
         </div>
       </div>
 
-      <div 
-        v-if="item.longNotes && item.longNotes.length > 0" 
+      <div
+        v-if="item.longNotes && item.longNotes.length > 0"
         class="long-notes"
         :style="{ marginLeft: indentSize + 'px' }"
       >
@@ -151,8 +151,8 @@
             <q-btn round dense flat size="xs" icon="edit" @click.stop="editLongNote(note)" />
             <q-btn round dense flat size="xs" icon="close" @click.stop="deleteLongNote(note.id)" />
           </div>
-          <div 
-            v-if="!note.collapsed" 
+          <div
+            v-if="!note.collapsed"
             class="long-note-content"
             :style="{ marginLeft: indentSize + 'px' }"
           >
@@ -162,8 +162,8 @@
       </div>
     </div>
 
-    <div 
-      v-if="!item.collapsed && item.children && item.children.length > 0" 
+    <div
+      v-if="!item.collapsed && item.children && item.children.length > 0"
       class="item-children"
       :style="{ marginLeft: indentSize + 'px' }"
     >
@@ -565,6 +565,7 @@ function stripHtml(text) {
 
 .item-children {
   margin-top: 4px;
+  border-left: 2px solid rgb(151, 201, 245);
 }
 
 .is-root > .item-content {

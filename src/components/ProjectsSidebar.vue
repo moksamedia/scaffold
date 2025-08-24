@@ -88,6 +88,19 @@
           </div>
         </div>
 
+        <div class="q-mb-md">
+          <div class="text-caption text-grey-8 q-mb-xs">Default List Type</div>
+          <q-select
+            v-model="defaultListType"
+            :options="listTypeOptions"
+            dense
+            outlined
+            emit-value
+            map-options
+            @update:model-value="updateDefaultListType"
+          />
+        </div>
+
         <q-list>
           <q-item
             v-for="project in projects"
@@ -200,7 +213,7 @@ import { useOutlineStore } from 'stores/outline-store'
 import { storeToRefs } from 'pinia'
 
 const store = useOutlineStore()
-const { projects, currentProjectId, fontSize, indentSize } = storeToRefs(store)
+const { projects, currentProjectId, fontSize, indentSize, defaultListType } = storeToRefs(store)
 
 const drawerOpen = ref(true)
 const showNewProjectDialog = ref(false)
@@ -209,6 +222,11 @@ const showDeleteDialog = ref(false)
 const projectToDelete = ref(null)
 const editingProjectId = ref(null)
 const editingProjectName = ref('')
+
+const listTypeOptions = [
+  { label: 'Numbered (1, 2, 3)', value: 'ordered' },
+  { label: 'Bulleted (•)', value: 'unordered' }
+]
 
 function createNewProject() {
   if (newProjectName.value.trim()) {
@@ -305,6 +323,10 @@ function decreaseIndentSize() {
 
 function updateIndentSize(value) {
   store.setIndentSize(value)
+}
+
+function updateDefaultListType(value) {
+  store.setDefaultListType(value)
 }
 
 function toggleDrawer() {
