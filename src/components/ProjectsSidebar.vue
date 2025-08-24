@@ -1,6 +1,6 @@
 <template>
   <q-drawer
-    v-model="drawer"
+    v-model="drawerOpen"
     show-if-above
     :width="250"
     :breakpoint="500"
@@ -166,7 +166,7 @@ import { storeToRefs } from 'pinia'
 const store = useOutlineStore()
 const { projects, currentProjectId, fontSize } = storeToRefs(store)
 
-const drawer = ref(true)
+const drawerOpen = ref(true)
 const showNewProjectDialog = ref(false)
 const newProjectName = ref('')
 const showDeleteDialog = ref(false)
@@ -254,4 +254,12 @@ function decreaseFontSize() {
 function updateFontSize(value) {
   store.setFontSize(value)
 }
+
+function toggleDrawer() {
+  drawerOpen.value = !drawerOpen.value
+}
+
+defineExpose({
+  toggleDrawer
+})
 </script>
