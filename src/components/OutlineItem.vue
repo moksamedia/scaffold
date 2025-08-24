@@ -20,7 +20,7 @@
           <div class="item-prefix" v-if="listType === 'ordered'">{{ index + 1 }}.</div>
           <div class="item-prefix" v-else>•</div>
 
-          <div 
+          <div
             v-if="!isEditing"
             class="item-text-display"
             :style="{ fontSize: fontSize + 'px' }"
@@ -129,7 +129,11 @@
         </div>
       </div>
 
-      <div v-if="item.longNotes && item.longNotes.length > 0" class="long-notes">
+      <div 
+        v-if="item.longNotes && item.longNotes.length > 0" 
+        class="long-notes"
+        :style="{ marginLeft: indentSize + 'px' }"
+      >
         <div v-for="note in item.longNotes" :key="note.id" class="long-note">
           <div class="long-note-header" @click="toggleLongNote(note.id)">
             <q-btn
@@ -147,14 +151,22 @@
             <q-btn round dense flat size="xs" icon="edit" @click.stop="editLongNote(note)" />
             <q-btn round dense flat size="xs" icon="close" @click.stop="deleteLongNote(note.id)" />
           </div>
-          <div v-if="!note.collapsed" class="long-note-content">
+          <div 
+            v-if="!note.collapsed" 
+            class="long-note-content"
+            :style="{ marginLeft: indentSize + 'px' }"
+          >
             <div v-html="formatText(note.text)"></div>
           </div>
         </div>
       </div>
     </div>
 
-    <div v-if="!item.collapsed && item.children && item.children.length > 0" class="item-children">
+    <div 
+      v-if="!item.collapsed && item.children && item.children.length > 0" 
+      class="item-children"
+      :style="{ marginLeft: indentSize + 'px' }"
+    >
       <OutlineItem
         v-for="(child, childIndex) in item.children"
         :key="child.id"
@@ -246,7 +258,7 @@ const props = defineProps({
 })
 
 const store = useOutlineStore()
-const { fontSize } = storeToRefs(store)
+const { fontSize, indentSize } = storeToRefs(store)
 
 const showShortNoteDialog = ref(false)
 const showLongNoteDialog = ref(false)
@@ -441,6 +453,8 @@ function stripHtml(text) {
   color: #666;
   flex-shrink: 0;
   font-size: inherit;
+  align-self: flex-start;
+  padding-top: 2px;
 }
 
 .item-text-display {
@@ -478,7 +492,7 @@ function stripHtml(text) {
 .short-note {
   font-style: italic;
   color: #666;
-  font-size: 0.9em;
+  font-size: 0.6em;
   margin-left: 8px;
   display: inline-flex;
   align-items: center;
@@ -510,7 +524,6 @@ function stripHtml(text) {
 
 .long-notes {
   margin-top: 8px;
-  margin-left: 32px;
 }
 
 .long-note {
@@ -545,14 +558,12 @@ function stripHtml(text) {
 
 .long-note-content {
   margin-top: 8px;
-  margin-left: 32px;
   padding: 8px;
   background: white;
   border-radius: 4px;
 }
 
 .item-children {
-  margin-left: 32px;
   margin-top: 4px;
 }
 

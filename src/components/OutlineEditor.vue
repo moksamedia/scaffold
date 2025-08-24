@@ -5,24 +5,10 @@
         <div class="col">
           <div class="text-h5">{{ currentProject.name }}</div>
         </div>
-        <q-btn
-          round
-          dense
-          flat
-          icon="undo"
-          :disable="!canUndo"
-          @click="undo"
-        >
+        <q-btn round dense flat icon="undo" :disable="!canUndo" @click="undo">
           <q-tooltip>Undo ({{ isMac ? 'Cmd' : 'Ctrl' }}+Z)</q-tooltip>
         </q-btn>
-        <q-btn
-          round
-          dense
-          flat
-          icon="redo"
-          :disable="!canRedo"
-          @click="redo"
-        >
+        <q-btn round dense flat icon="redo" :disable="!canRedo" @click="redo">
           <q-tooltip>Redo ({{ isMac ? 'Cmd' : 'Ctrl' }}+{{ isMac ? 'Shift+Z' : 'Y' }})</q-tooltip>
         </q-btn>
         <q-separator vertical inset class="q-mx-sm" />
@@ -104,5 +90,10 @@ function redo() {
 
 .outline-items {
   margin: 0 5%;
+}
+@media (max-width: $breakpoint-xs-max) {
+  .outline-items {
+    margin: 0 1%;
+  }
 }
 </style>

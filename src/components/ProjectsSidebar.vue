@@ -52,6 +52,42 @@
           </div>
         </div>
 
+        <div class="q-mb-md">
+          <div class="text-caption text-grey-8 q-mb-xs">Indent Size</div>
+          <div class="row items-center q-gutter-xs">
+            <q-btn
+              round
+              dense
+              flat
+              icon="remove"
+              size="sm"
+              :disable="indentSize <= 5"
+              @click="decreaseIndentSize"
+            />
+            <div class="text-body2" style="min-width: 40px; text-align: center">
+              {{ indentSize }}px
+            </div>
+            <q-btn
+              round
+              dense
+              flat
+              icon="add"
+              size="sm"
+              :disable="indentSize >= 50"
+              @click="increaseIndentSize"
+            />
+            <q-slider
+              v-model="indentSize"
+              :min="5"
+              :max="50"
+              :step="1"
+              color="primary"
+              class="col q-ml-sm"
+              @update:model-value="updateIndentSize"
+            />
+          </div>
+        </div>
+
         <q-list>
           <q-item
             v-for="project in projects"
@@ -164,7 +200,7 @@ import { useOutlineStore } from 'stores/outline-store'
 import { storeToRefs } from 'pinia'
 
 const store = useOutlineStore()
-const { projects, currentProjectId, fontSize } = storeToRefs(store)
+const { projects, currentProjectId, fontSize, indentSize } = storeToRefs(store)
 
 const drawerOpen = ref(true)
 const showNewProjectDialog = ref(false)
@@ -253,6 +289,22 @@ function decreaseFontSize() {
 
 function updateFontSize(value) {
   store.setFontSize(value)
+}
+
+function increaseIndentSize() {
+  if (indentSize.value < 50) {
+    store.setIndentSize(indentSize.value + 1)
+  }
+}
+
+function decreaseIndentSize() {
+  if (indentSize.value > 5) {
+    store.setIndentSize(indentSize.value - 1)
+  }
+}
+
+function updateIndentSize(value) {
+  store.setIndentSize(value)
 }
 
 function toggleDrawer() {

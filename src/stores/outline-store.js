@@ -5,6 +5,7 @@ export const useOutlineStore = defineStore('outline', () => {
   const projects = ref([])
   const currentProjectId = ref(null)
   const fontSize = ref(14)
+  const indentSize = ref(32)
   const undoStack = ref([])
   const redoStack = ref([])
   const maxHistorySize = 50
@@ -383,19 +384,30 @@ export const useOutlineStore = defineStore('outline', () => {
     saveToLocalStorage()
   }
   
+  function setIndentSize(size) {
+    indentSize.value = size
+    saveToLocalStorage()
+  }
+  
   function saveToLocalStorage() {
     localStorage.setItem('outline-projects', JSON.stringify(projects.value))
     localStorage.setItem('outline-current-project', currentProjectId.value || '')
     localStorage.setItem('outline-font-size', fontSize.value.toString())
+    localStorage.setItem('outline-indent-size', indentSize.value.toString())
   }
   
   function loadFromLocalStorage() {
     const savedProjects = localStorage.getItem('outline-projects')
     const savedCurrentId = localStorage.getItem('outline-current-project')
     const savedFontSize = localStorage.getItem('outline-font-size')
+    const savedIndentSize = localStorage.getItem('outline-indent-size')
     
     if (savedFontSize) {
       fontSize.value = parseInt(savedFontSize, 10)
+    }
+    
+    if (savedIndentSize) {
+      indentSize.value = parseInt(savedIndentSize, 10)
     }
     
     if (savedProjects) {
@@ -446,6 +458,7 @@ export const useOutlineStore = defineStore('outline', () => {
     currentProjectId,
     currentProject,
     fontSize,
+    indentSize,
     canUndo,
     canRedo,
     createProject,
@@ -467,6 +480,7 @@ export const useOutlineStore = defineStore('outline', () => {
     toggleRootListType,
     toggleChildrenListType,
     setFontSize,
+    setIndentSize,
     undo,
     redo,
     clearHistory
