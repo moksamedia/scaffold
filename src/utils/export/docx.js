@@ -18,216 +18,88 @@ if (typeof window !== 'undefined') {
 export async function exportAsDocx(project) {
   if (!project) return
 
+  // First pass: determine maximum nesting depth
+  function getMaxDepth(items, currentDepth = 0) {
+    let maxDepth = currentDepth
+    for (const item of items) {
+      if (item.children && item.children.length > 0) {
+        const childDepth = getMaxDepth(item.children, currentDepth + 1)
+        maxDepth = Math.max(maxDepth, childDepth)
+      }
+    }
+    return maxDepth
+  }
+
+  const maxDepth = getMaxDepth(project.lists)
+
+  // Generate bullet list levels dynamically
+  function generateBulletLevels(
+    maxLevel,
+    baseIndent = 0.25,
+    indentIncrement = 0.25,
+    hangingIndent = 0.125,
+  ) {
+    const bulletSymbols = ['•', '◦', '▪']
+    const levels = []
+
+    for (let i = 0; i <= maxLevel; i++) {
+      levels.push({
+        level: i,
+        format: LevelFormat.BULLET,
+        text: bulletSymbols[i % bulletSymbols.length],
+        alignment: AlignmentType.LEFT,
+        style: {
+          paragraph: {
+            indent: {
+              left: convertInchesToTwip(baseIndent + i * indentIncrement),
+              hanging: convertInchesToTwip(hangingIndent),
+            },
+          },
+        },
+      })
+    }
+    return levels
+  }
+
+  // Generate ordered list levels dynamically
+  function generateOrderedLevels(
+    maxLevel,
+    baseIndent = 0.25,
+    indentIncrement = 0.25,
+    hangingIndent = 0.125,
+  ) {
+    const formats = [LevelFormat.DECIMAL, LevelFormat.LOWER_LETTER, LevelFormat.LOWER_ROMAN]
+    const levels = []
+
+    for (let i = 0; i <= maxLevel; i++) {
+      levels.push({
+        level: i,
+        format: formats[i % formats.length],
+        text: `%${i + 1}.`,
+        alignment: AlignmentType.LEFT,
+        style: {
+          paragraph: {
+            indent: {
+              left: convertInchesToTwip(baseIndent + i * indentIncrement),
+              hanging: convertInchesToTwip(hangingIndent),
+            },
+          },
+        },
+      })
+    }
+    return levels
+  }
+
   const doc = new Document({
     numbering: {
       config: [
         {
           reference: 'bullet-list',
-          levels: [
-            {
-              level: 0,
-              format: LevelFormat.BULLET,
-              text: '•',
-              alignment: AlignmentType.LEFT,
-              style: {
-                paragraph: {
-                  indent: { left: convertInchesToTwip(0.5), hanging: convertInchesToTwip(0.25) },
-                },
-              },
-            },
-            {
-              level: 1,
-              format: LevelFormat.BULLET,
-              text: '◦',
-              alignment: AlignmentType.LEFT,
-              style: {
-                paragraph: {
-                  indent: { left: convertInchesToTwip(1.0), hanging: convertInchesToTwip(0.25) },
-                },
-              },
-            },
-            {
-              level: 2,
-              format: LevelFormat.BULLET,
-              text: '▪',
-              alignment: AlignmentType.LEFT,
-              style: {
-                paragraph: {
-                  indent: { left: convertInchesToTwip(1.5), hanging: convertInchesToTwip(0.25) },
-                },
-              },
-            },
-            {
-              level: 3,
-              format: LevelFormat.BULLET,
-              text: '•',
-              alignment: AlignmentType.LEFT,
-              style: {
-                paragraph: {
-                  indent: { left: convertInchesToTwip(2.0), hanging: convertInchesToTwip(0.25) },
-                },
-              },
-            },
-            {
-              level: 4,
-              format: LevelFormat.BULLET,
-              text: '◦',
-              alignment: AlignmentType.LEFT,
-              style: {
-                paragraph: {
-                  indent: { left: convertInchesToTwip(2.5), hanging: convertInchesToTwip(0.25) },
-                },
-              },
-            },
-            {
-              level: 5,
-              format: LevelFormat.BULLET,
-              text: '▪',
-              alignment: AlignmentType.LEFT,
-              style: {
-                paragraph: {
-                  indent: { left: convertInchesToTwip(3.0), hanging: convertInchesToTwip(0.25) },
-                },
-              },
-            },
-            {
-              level: 6,
-              format: LevelFormat.BULLET,
-              text: '•',
-              alignment: AlignmentType.LEFT,
-              style: {
-                paragraph: {
-                  indent: { left: convertInchesToTwip(3.5), hanging: convertInchesToTwip(0.25) },
-                },
-              },
-            },
-            {
-              level: 7,
-              format: LevelFormat.BULLET,
-              text: '◦',
-              alignment: AlignmentType.LEFT,
-              style: {
-                paragraph: {
-                  indent: { left: convertInchesToTwip(4.0), hanging: convertInchesToTwip(0.25) },
-                },
-              },
-            },
-            {
-              level: 8,
-              format: LevelFormat.BULLET,
-              text: '▪',
-              alignment: AlignmentType.LEFT,
-              style: {
-                paragraph: {
-                  indent: { left: convertInchesToTwip(4.5), hanging: convertInchesToTwip(0.25) },
-                },
-              },
-            },
-          ],
+          levels: generateBulletLevels(maxDepth),
         },
         {
           reference: 'ordered-list',
-          levels: [
-            {
-              level: 0,
-              format: LevelFormat.DECIMAL,
-              text: '%1.',
-              alignment: AlignmentType.LEFT,
-              style: {
-                paragraph: {
-                  indent: { left: convertInchesToTwip(0.5), hanging: convertInchesToTwip(0.25) },
-                },
-              },
-            },
-            {
-              level: 1,
-              format: LevelFormat.LOWER_LETTER,
-              text: '%2.',
-              alignment: AlignmentType.LEFT,
-              style: {
-                paragraph: {
-                  indent: { left: convertInchesToTwip(1.0), hanging: convertInchesToTwip(0.25) },
-                },
-              },
-            },
-            {
-              level: 2,
-              format: LevelFormat.LOWER_ROMAN,
-              text: '%3.',
-              alignment: AlignmentType.LEFT,
-              style: {
-                paragraph: {
-                  indent: { left: convertInchesToTwip(1.5), hanging: convertInchesToTwip(0.25) },
-                },
-              },
-            },
-            {
-              level: 3,
-              format: LevelFormat.DECIMAL,
-              text: '%4.',
-              alignment: AlignmentType.LEFT,
-              style: {
-                paragraph: {
-                  indent: { left: convertInchesToTwip(2.0), hanging: convertInchesToTwip(0.25) },
-                },
-              },
-            },
-            {
-              level: 4,
-              format: LevelFormat.LOWER_LETTER,
-              text: '%5.',
-              alignment: AlignmentType.LEFT,
-              style: {
-                paragraph: {
-                  indent: { left: convertInchesToTwip(2.5), hanging: convertInchesToTwip(0.25) },
-                },
-              },
-            },
-            {
-              level: 5,
-              format: LevelFormat.LOWER_ROMAN,
-              text: '%6.',
-              alignment: AlignmentType.LEFT,
-              style: {
-                paragraph: {
-                  indent: { left: convertInchesToTwip(3.0), hanging: convertInchesToTwip(0.25) },
-                },
-              },
-            },
-            {
-              level: 6,
-              format: LevelFormat.DECIMAL,
-              text: '%7.',
-              alignment: AlignmentType.LEFT,
-              style: {
-                paragraph: {
-                  indent: { left: convertInchesToTwip(3.5), hanging: convertInchesToTwip(0.25) },
-                },
-              },
-            },
-            {
-              level: 7,
-              format: LevelFormat.LOWER_LETTER,
-              text: '%8.',
-              alignment: AlignmentType.LEFT,
-              style: {
-                paragraph: {
-                  indent: { left: convertInchesToTwip(4.0), hanging: convertInchesToTwip(0.25) },
-                },
-              },
-            },
-            {
-              level: 8,
-              format: LevelFormat.LOWER_ROMAN,
-              text: '%9.',
-              alignment: AlignmentType.LEFT,
-              style: {
-                paragraph: {
-                  indent: { left: convertInchesToTwip(4.5), hanging: convertInchesToTwip(0.25) },
-                },
-              },
-            },
-          ],
+          levels: generateOrderedLevels(maxDepth),
         },
       ],
     },
@@ -242,11 +114,7 @@ export async function exportAsDocx(project) {
             spacing: { after: 300 },
           }),
           // Process all items
-          ...(await processItemsForDocx(
-            project.lists,
-            0,
-            project.rootListType,
-          )),
+          ...(await processItemsForDocx(project.lists, 0, project.rootListType)),
         ],
       },
     ],
@@ -272,7 +140,7 @@ export async function exportAsDocx(project) {
         children: textRuns,
         numbering: {
           reference: listType === 'ordered' ? 'ordered-list' : 'bullet-list',
-          level: Math.min(level, 8), // Support up to 9 levels (0-8)
+          level: level, // Use actual level - no artificial limit
         },
       })
 
@@ -281,18 +149,8 @@ export async function exportAsDocx(project) {
       // Add long notes
       if (item.longNotes && item.longNotes.length > 0) {
         for (const note of item.longNotes) {
-          const noteText = stripHtmlForDocx(note.text)
-          if (noteText.trim()) {
-            paragraphs.push(
-              new Paragraph({
-                children: [new TextRun({ text: noteText, color: '666666' })],
-                indent: {
-                  left: convertInchesToTwip(0.5 * (level + 1)),
-                },
-                spacing: { before: 100, after: 100 },
-              }),
-            )
-          }
+          const noteParagraphs = parseHtmlToDocxParagraphs(note.text, level)
+          paragraphs.push(...noteParagraphs)
         }
       }
 
@@ -310,6 +168,148 @@ export async function exportAsDocx(project) {
     return paragraphs
   }
 
+  function parseHtmlToDocxParagraphs(html, level) {
+    if (!html || !html.trim()) return []
+
+    const paragraphs = []
+
+    // Split by paragraph/div tags, preserving content
+    const paragraphMatches = html.split(/<\/p>|<\/div>/i)
+
+    for (let i = 0; i < paragraphMatches.length; i++) {
+      let paragraphContent = paragraphMatches[i]
+        .replace(/<p[^>]*>|<div[^>]*>/i, '')
+        .trim()
+
+      if (paragraphContent) {
+        // Check for blockquotes within this paragraph
+        const blockquoteRegex = /<blockquote[^>]*>(.*?)<\/blockquote>/gis
+        let lastIndex = 0
+        let match
+        let hasBlockquote = false
+
+        while ((match = blockquoteRegex.exec(paragraphContent)) !== null) {
+          hasBlockquote = true
+          
+          // Add content before the blockquote as a regular paragraph
+          const beforeQuote = paragraphContent.substring(lastIndex, match.index).trim()
+          if (beforeQuote) {
+            const textRuns = parseFormattedText(beforeQuote)
+            if (textRuns.length > 0) {
+              paragraphs.push(
+                new Paragraph({
+                  children: textRuns,
+                  indent: {
+                    left: convertInchesToTwip(0.25 + (level + 1) * 0.25),
+                  },
+                  spacing: { before: 100, after: 100 },
+                })
+              )
+            }
+          }
+
+          // Add the blockquote content as an indented paragraph
+          const quoteContent = match[1].trim()
+          if (quoteContent) {
+            const quoteTextRuns = parseFormattedText(quoteContent)
+            if (quoteTextRuns.length > 0) {
+              paragraphs.push(
+                new Paragraph({
+                  children: quoteTextRuns,
+                  indent: {
+                    left: convertInchesToTwip(0.25 + (level + 2) * 0.25), // Extra indent for quotes
+                  },
+                  spacing: { before: 100, after: 100 },
+                })
+              )
+            }
+          }
+
+          lastIndex = blockquoteRegex.lastIndex
+        }
+
+        if (hasBlockquote) {
+          // Add any remaining content after the last blockquote
+          const afterQuote = paragraphContent.substring(lastIndex).trim()
+          if (afterQuote) {
+            const textRuns = parseFormattedText(afterQuote)
+            if (textRuns.length > 0) {
+              paragraphs.push(
+                new Paragraph({
+                  children: textRuns,
+                  indent: {
+                    left: convertInchesToTwip(0.25 + (level + 1) * 0.25),
+                  },
+                  spacing: { before: 100, after: 100 },
+                })
+              )
+            }
+          }
+        } else {
+          // If no blockquotes were found, treat as regular paragraph
+          const textRuns = parseFormattedText(paragraphContent)
+          if (textRuns.length > 0) {
+            paragraphs.push(
+              new Paragraph({
+                children: textRuns,
+                indent: {
+                  left: convertInchesToTwip(0.25 + (level + 1) * 0.25),
+                },
+                spacing: { before: 100, after: 100 },
+              })
+            )
+          }
+        }
+      }
+    }
+
+    // If no paragraph tags found, treat as single paragraph
+    if (paragraphs.length === 0 && html.trim()) {
+      const textRuns = parseFormattedText(html)
+      if (textRuns.length > 0) {
+        paragraphs.push(
+          new Paragraph({
+            children: textRuns,
+            indent: {
+              left: convertInchesToTwip(0.25 + (level + 1) * 0.25),
+            },
+            spacing: { before: 100, after: 100 },
+          })
+        )
+      }
+    }
+
+    return paragraphs
+  }
+
+  function parseFormattedText(html) {
+    if (!html) return []
+
+    // Simple parsing for basic formatting
+    const textRuns = []
+    let currentText = html
+
+    // Handle line breaks
+    currentText = currentText.replace(/<br[^>]*>/gi, '\n')
+
+    // For now, create a single text run with basic formatting stripped
+    // This could be enhanced to preserve bold, italic, etc.
+    const cleanText = currentText
+      .replace(/<strong[^>]*>(.*?)<\/strong>/gi, '$1')
+      .replace(/<b[^>]*>(.*?)<\/b>/gi, '$1')
+      .replace(/<em[^>]*>(.*?)<\/em>/gi, '$1')
+      .replace(/<i[^>]*>(.*?)<\/i>/gi, '$1')
+      .replace(/<[^>]*>/g, '') // Remove remaining HTML tags
+      .trim()
+
+    if (cleanText) {
+      textRuns.push(new TextRun({ text: cleanText, color: '666666' }))
+    }
+
+    return textRuns
+  }
+
+  /*
   function stripHtmlForDocx(html) {
     if (!html) return ''
 
@@ -322,6 +322,7 @@ export async function exportAsDocx(project) {
       .replace(/\n\s*\n/g, '\n') // Clean up multiple newlines
       .trim()
   }
+      */
 
   // Generate and download the document
   try {
