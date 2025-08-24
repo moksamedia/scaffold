@@ -2,6 +2,7 @@
 // https://v2.quasar.dev/quasar-cli-vite/quasar-config-file
 
 import { defineConfig } from '#q-app/wrappers'
+import { nodePolyfills } from 'vite-plugin-node-polyfills'
 
 export default defineConfig((/* ctx */) => {
   return {
@@ -53,7 +54,14 @@ export default defineConfig((/* ctx */) => {
       // polyfillModulePreload: true,
       // distDir
 
-      // extendViteConf (viteConf) {},
+      extendViteConf(viteConf) {
+        viteConf.plugins = [
+          ...(viteConf.plugins || []),
+          nodePolyfills({
+            exclude: ['fs'],
+          }),
+        ]
+      },
       // viteVuePluginOptions: {},
 
       vitePlugins: [

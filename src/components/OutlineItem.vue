@@ -216,9 +216,11 @@
             min-height="300px"
             :toolbar="[
               ['bold', 'italic', 'underline'],
+              ['unordered', 'ordered', 'outdent', 'indent'],
+              ['quote', 'code', 'code_block'],
+              ['link', 'image'],
               ['undo', 'redo'],
             ]"
-            @paste="handleLongNotePaste"
           />
         </q-card-section>
 
@@ -407,6 +409,7 @@ function stripHtml(text) {
   return tmp.textContent || tmp.innerText || ''
 }
 
+/*
 function handleLongNotePaste(event) {
   event.preventDefault()
 
@@ -414,11 +417,12 @@ function handleLongNotePaste(event) {
   const pastedText = (event.clipboardData || window.clipboardData).getData('text')
 
   // Strip line breaks and replace with spaces
-  const cleanedText = pastedText.replace(/[\r\n]+/g, ' ').trim()
+  //const cleanedText = pastedText.replace(/[\r\n]+/g, ' ').trim()
 
   // Insert the cleaned text at cursor position
-  document.execCommand('insertText', false, cleanedText)
+  document.execCommand('insertText', false, pastedText)
 }
+  */
 </script>
 
 <style scoped>

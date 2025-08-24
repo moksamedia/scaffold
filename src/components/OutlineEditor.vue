@@ -28,6 +28,20 @@
         <q-btn round dense flat icon="add" color="primary" @click="addRootItem">
           <q-tooltip>Add Root Item</q-tooltip>
         </q-btn>
+        <q-separator vertical inset class="q-mx-sm" />
+        <q-btn round dense flat icon="download">
+          <q-tooltip>Export</q-tooltip>
+          <q-menu>
+            <q-list dense>
+              <q-item clickable v-close-popup @click="exportAsMarkdown">
+                <q-item-section>Export as Markdown</q-item-section>
+              </q-item>
+              <q-item clickable v-close-popup @click="exportAsDocx">
+                <q-item-section>Export as Word Document</q-item-section>
+              </q-item>
+            </q-list>
+          </q-menu>
+        </q-btn>
       </div>
 
       <div v-if="currentProject.lists.length === 0" class="text-grey-6 q-pa-lg text-center">
@@ -79,6 +93,14 @@ function undo() {
 
 function redo() {
   store.redo()
+}
+
+function exportAsMarkdown() {
+  store.exportAsMarkdown()
+}
+
+function exportAsDocx() {
+  store.exportAsDocx()
 }
 </script>
 
