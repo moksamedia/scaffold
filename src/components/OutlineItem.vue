@@ -20,20 +20,32 @@
           <div class="item-prefix" v-if="listType === 'ordered'">{{ index + 1 }}.</div>
           <div class="item-prefix" v-else>•</div>
 
+          <div 
+            v-if="!isEditing"
+            class="item-text-display"
+            :style="{ fontSize: fontSize + 'px' }"
+            @click="startEditing"
+          >
+            {{ item.text || 'Click to edit...' }}
+          </div>
           <q-input
+            v-else
             :model-value="item.text"
             dense
             borderless
             class="item-text-input"
             :style="{ fontSize: fontSize + 'px' }"
+            autofocus
             @update:model-value="updateText"
             @keydown.enter.prevent="handleEnter"
             @keydown.tab.prevent="handleTab"
             @keydown.shift.tab.prevent="handleShiftTab"
+            @keydown.esc="stopEditing"
+            @blur="stopEditing"
           />
 
           <span v-for="note in item.shortNotes" :key="note.id" class="short-note">
-            <span class="short-note-text" @click="editShortNote(note)">
+            <span class="short-note-text" @click.stop="editShortNote(note)">
               {{ note.text }}
             </span>
             <q-btn
@@ -240,6 +252,7 @@ const showShortNoteDialog = ref(false)
 const showLongNoteDialog = ref(false)
 const noteText = ref('')
 const editingNote = ref(null)
+const isEditing = ref(false)
 
 function toggleCollapse() {
   store.updateListItem(props.item.id, { collapsed: !props.item.collapsed })
@@ -253,7 +266,16 @@ function updateText(value) {
   store.updateListItem(props.item.id, { text: value })
 }
 
+function startEditing() {
+  isEditing.value = true
+}
+
+function stopEditing() {
+  isEditing.value = false
+}
+
 function handleEnter() {
+  stopEditing()
   addSibling()
 }
 
@@ -421,12 +443,36 @@ function stripHtml(text) {
   font-size: inherit;
 }
 
+.item-text-display {
+  flex: 1;
+  cursor: text;
+  padding: 2px 4px;
+  border-radius: 2px;
+  line-height: 1.5;
+  word-wrap: break-word;
+  overflow-wrap: break-word;
+  white-space: pre-wrap;
+  min-height: 1.5em;
+  transition: background-color 0.2s;
+}
+
+.item-text-display:hover {
+  background-color: rgba(0, 0, 0, 0.02);
+}
+
+.item-text-display:empty::before {
+  content: 'Click to edit...';
+  color: #999;
+  font-style: italic;
+}
+
 .item-text-input {
   flex: 1;
 }
 
 .item-text-input :deep(input) {
   font-size: inherit !important;
+  padding: 2px 4px !important;
 }
 
 .short-note {
