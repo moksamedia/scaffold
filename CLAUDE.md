@@ -19,6 +19,8 @@ This is a Quasar Vue 3 application for creating and managing hierarchical outlin
 - Auto-scroll to visible items during navigation
 - Click-to-edit text interface
 - LocalStorage persistence
+- Export functionality: Markdown and DOCX formats with proper formatting
+- Bulk collapse/expand controls for items and notes
 
 ## File Structure
 
@@ -31,12 +33,18 @@ This is a Quasar Vue 3 application for creating and managing hierarchical outlin
 - Per-project settings storage and restoration
 - Navigation functions for keyboard shortcuts
 - LocalStorage persistence with migration logic
+- Export functionality integration
+- Bulk collapse/expand operations for items and notes
 
 ### `/src/components/`
 - `OutlineItem.vue` - Recursive component for rendering nested list items
-- `OutlineEditor.vue` - Main editing interface with project header and controls
+- `OutlineEditor.vue` - Main editing interface with project header and controls, export menu, bulk operations
 - `ProjectsSidebar.vue` - Left panel for project management and settings
 - `MainLayout.vue` - Application layout with sidebar toggle
+
+### `/src/utils/export/`
+- `markdown.js` - Markdown export functionality with HTML to markdown conversion
+- `docx.js` - DOCX export with dynamic nesting levels, Word styles, and paragraph structure preservation
 
 ### Key Technical Patterns
 - Reactive Vue 3 Composition API throughout
@@ -51,4 +59,13 @@ This is a Quasar Vue 3 application for creating and managing hierarchical outlin
 - Per-project settings storage (font size, indent size, list type, indent guides)
 - TAB navigation: cycles through siblings, Shift+TAB navigates to next item in outline hierarchy
 - Conditional scroll-to-view that only scrolls if item is not already visible
-- Line break stripping on paste in long note rich text editor
+- Rich text editor for long notes with lists, indentation, quotes, code blocks, links, images
+- Export system: Markdown and DOCX formats with proper formatting
+- DOCX export features:
+  - Dynamic nesting level detection and numbering system generation
+  - Word style application: List Paragraph, Comment, Block Quotation
+  - Paragraph structure preservation for long notes with blockquote handling
+  - Line break preservation within formatted text
+  - Configurable indentation parameters
+- Bulk operations: collapse/expand all items and all long notes separately
+- Modular export architecture with separate utility files

@@ -12,6 +12,33 @@
           <q-tooltip>Redo ({{ isMac ? 'Cmd' : 'Ctrl' }}+{{ isMac ? 'Shift+Z' : 'Y' }})</q-tooltip>
         </q-btn>
         <q-separator vertical inset class="q-mx-sm" />
+        <q-btn round dense flat icon="unfold_more">
+          <q-tooltip>Collapse/Expand Items</q-tooltip>
+          <q-menu>
+            <q-list dense>
+              <q-item clickable v-close-popup @click="collapseAllItems">
+                <q-item-section>Collapse All Items</q-item-section>
+              </q-item>
+              <q-item clickable v-close-popup @click="expandAllItems">
+                <q-item-section>Expand All Items</q-item-section>
+              </q-item>
+            </q-list>
+          </q-menu>
+        </q-btn>
+        <q-btn round dense flat icon="speaker_notes">
+          <q-tooltip>Collapse/Expand Notes</q-tooltip>
+          <q-menu>
+            <q-list dense>
+              <q-item clickable v-close-popup @click="collapseAllNotes">
+                <q-item-section>Collapse All Notes</q-item-section>
+              </q-item>
+              <q-item clickable v-close-popup @click="expandAllNotes">
+                <q-item-section>Expand All Notes</q-item-section>
+              </q-item>
+            </q-list>
+          </q-menu>
+        </q-btn>
+        <q-separator vertical inset class="q-mx-sm" />
         <q-btn
           round
           dense
@@ -101,6 +128,22 @@ function exportAsMarkdown() {
 
 function exportAsDocx() {
   store.exportAsDocx()
+}
+
+function collapseAllItems() {
+  store.collapseExpandAllItems(true)
+}
+
+function expandAllItems() {
+  store.collapseExpandAllItems(false)
+}
+
+function collapseAllNotes() {
+  store.collapseExpandAllLongNotes(true)
+}
+
+function expandAllNotes() {
+  store.collapseExpandAllLongNotes(false)
 }
 </script>
 

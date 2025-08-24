@@ -138,6 +138,7 @@ export async function exportAsDocx(project) {
       // Create the main paragraph with proper numbering/bullets
       const paragraph = new Paragraph({
         children: textRuns,
+        style: 'List Paragraph',
         numbering: {
           reference: listType === 'ordered' ? 'ordered-list' : 'bullet-list',
           level: level, // Use actual level - no artificial limit
@@ -177,9 +178,7 @@ export async function exportAsDocx(project) {
     const paragraphMatches = html.split(/<\/p>|<\/div>/i)
 
     for (let i = 0; i < paragraphMatches.length; i++) {
-      let paragraphContent = paragraphMatches[i]
-        .replace(/<p[^>]*>|<div[^>]*>/i, '')
-        .trim()
+      let paragraphContent = paragraphMatches[i].replace(/<p[^>]*>|<div[^>]*>/i, '').trim()
 
       if (paragraphContent) {
         // Check for blockquotes within this paragraph
@@ -190,7 +189,7 @@ export async function exportAsDocx(project) {
 
         while ((match = blockquoteRegex.exec(paragraphContent)) !== null) {
           hasBlockquote = true
-          
+
           // Add content before the blockquote as a regular paragraph
           const beforeQuote = paragraphContent.substring(lastIndex, match.index).trim()
           if (beforeQuote) {
@@ -199,11 +198,12 @@ export async function exportAsDocx(project) {
               paragraphs.push(
                 new Paragraph({
                   children: textRuns,
+                  style: 'Comment',
                   indent: {
                     left: convertInchesToTwip(0.25 + (level + 1) * 0.25),
                   },
                   spacing: { before: 100, after: 100 },
-                })
+                }),
               )
             }
           }
@@ -216,11 +216,12 @@ export async function exportAsDocx(project) {
               paragraphs.push(
                 new Paragraph({
                   children: quoteTextRuns,
+                  style: 'Block Quotation',
                   indent: {
                     left: convertInchesToTwip(0.25 + (level + 2) * 0.25), // Extra indent for quotes
                   },
                   spacing: { before: 100, after: 100 },
-                })
+                }),
               )
             }
           }
@@ -237,11 +238,12 @@ export async function exportAsDocx(project) {
               paragraphs.push(
                 new Paragraph({
                   children: textRuns,
+                  style: 'Comment',
                   indent: {
                     left: convertInchesToTwip(0.25 + (level + 1) * 0.25),
                   },
                   spacing: { before: 100, after: 100 },
-                })
+                }),
               )
             }
           }
@@ -252,11 +254,12 @@ export async function exportAsDocx(project) {
             paragraphs.push(
               new Paragraph({
                 children: textRuns,
+                style: 'Comment',
                 indent: {
                   left: convertInchesToTwip(0.25 + (level + 1) * 0.25),
                 },
                 spacing: { before: 100, after: 100 },
-              })
+              }),
             )
           }
         }
@@ -270,11 +273,12 @@ export async function exportAsDocx(project) {
         paragraphs.push(
           new Paragraph({
             children: textRuns,
+            style: 'Comment',
             indent: {
               left: convertInchesToTwip(0.25 + (level + 1) * 0.25),
             },
             spacing: { before: 100, after: 100 },
-          })
+          }),
         )
       }
     }
@@ -303,7 +307,17 @@ export async function exportAsDocx(project) {
       .trim()
 
     if (cleanText) {
-      textRuns.push(new TextRun({ text: cleanText, color: '666666' }))
+      // Split by line breaks and create separate text runs with breaks
+      const lines = cleanText.split('\n')
+      for (let i = 0; i < lines.length; i++) {
+        if (lines[i].trim()) {
+          textRuns.push(new TextRun({ text: lines[i].trim(), color: '666666' }))
+        }
+        // Add line break after each line except the last
+        if (i < lines.length - 1) {
+          textRuns.push(new TextRun({ text: '', break: 1 }))
+        }
+      }
     }
 
     return textRuns

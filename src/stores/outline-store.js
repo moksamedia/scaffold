@@ -521,6 +521,46 @@ export const useOutlineStore = defineStore('outline', () => {
     await exportAsDocx(currentProject.value)
   }
 
+  function collapseExpandAllItems(collapse = true) {
+    if (!currentProject.value) return
+
+    function updateItemCollapse(items) {
+      items.forEach(item => {
+        if (item.children && item.children.length > 0) {
+          item.collapsed = collapse
+          updateItemCollapse(item.children)
+        }
+      })
+    }
+
+    saveState(collapse ? 'Collapse all items' : 'Expand all items')
+    updateItemCollapse(currentProject.value.lists)
+    currentProject.value.updatedAt = new Date().toISOString()
+    saveToLocalStorage()
+  }
+
+  function collapseExpandAllLongNotes(collapse = true) {
+    if (!currentProject.value) return
+
+    function updateNotesCollapse(items) {
+      items.forEach(item => {
+        if (item.longNotes && item.longNotes.length > 0) {
+          item.longNotes.forEach(note => {
+            note.collapsed = collapse
+          })
+        }
+        if (item.children && item.children.length > 0) {
+          updateNotesCollapse(item.children)
+        }
+      })
+    }
+
+    saveState(collapse ? 'Collapse all long notes' : 'Expand all long notes')
+    updateNotesCollapse(currentProject.value.lists)
+    currentProject.value.updatedAt = new Date().toISOString()
+    saveToLocalStorage()
+  }
+
   function setFontSize(size) {
     fontSize.value = size
     if (currentProject.value) {
@@ -691,6 +731,8 @@ export const useOutlineStore = defineStore('outline', () => {
     currentlyEditingId,
     exportAsMarkdown: exportProjectAsMarkdown,
     exportAsDocx: exportProjectAsDocx,
+    collapseExpandAllItems,
+    collapseExpandAllLongNotes,
     setFontSize,
     setIndentSize,
     setDefaultListType,
