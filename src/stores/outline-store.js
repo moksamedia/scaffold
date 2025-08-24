@@ -97,7 +97,13 @@ export const useOutlineStore = defineStore('outline', () => {
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
       lists: [],
-      rootListType: defaultListType.value
+      rootListType: defaultListType.value,
+      settings: {
+        fontSize: fontSize.value,
+        indentSize: indentSize.value,
+        defaultListType: defaultListType.value,
+        showIndentGuides: showIndentGuides.value
+      }
     }
     projects.value.push(project)
     saveToLocalStorage()
@@ -127,6 +133,16 @@ export const useOutlineStore = defineStore('outline', () => {
   function selectProject(projectId) {
     currentProjectId.value = projectId
     clearHistory()
+    
+    // Restore project-specific settings
+    const project = projects.value.find(p => p.id === projectId)
+    if (project && project.settings) {
+      fontSize.value = project.settings.fontSize
+      indentSize.value = project.settings.indentSize
+      defaultListType.value = project.settings.defaultListType
+      showIndentGuides.value = project.settings.showIndentGuides
+    }
+    
     saveToLocalStorage()
   }
   
@@ -383,21 +399,49 @@ export const useOutlineStore = defineStore('outline', () => {
   
   function setFontSize(size) {
     fontSize.value = size
+    if (currentProject.value) {
+      if (!currentProject.value.settings) {
+        currentProject.value.settings = {}
+      }
+      currentProject.value.settings.fontSize = size
+      currentProject.value.updatedAt = new Date().toISOString()
+    }
     saveToLocalStorage()
   }
   
   function setIndentSize(size) {
     indentSize.value = size
+    if (currentProject.value) {
+      if (!currentProject.value.settings) {
+        currentProject.value.settings = {}
+      }
+      currentProject.value.settings.indentSize = size
+      currentProject.value.updatedAt = new Date().toISOString()
+    }
     saveToLocalStorage()
   }
   
   function setDefaultListType(type) {
     defaultListType.value = type
+    if (currentProject.value) {
+      if (!currentProject.value.settings) {
+        currentProject.value.settings = {}
+      }
+      currentProject.value.settings.defaultListType = type
+      currentProject.value.updatedAt = new Date().toISOString()
+    }
     saveToLocalStorage()
   }
   
   function setShowIndentGuides(show) {
     showIndentGuides.value = show
+    if (currentProject.value) {
+      if (!currentProject.value.settings) {
+        currentProject.value.settings = {}
+      }
+      currentProject.value.settings.showIndentGuides = show
+      currentProject.value.updatedAt = new Date().toISOString()
+    }
     saveToLocalStorage()
   }
   
@@ -442,6 +486,17 @@ export const useOutlineStore = defineStore('outline', () => {
           if (!project.rootListType) {
             project.rootListType = 'ordered'
           }
+          
+          // Migrate projects to include settings if they don't have them
+          if (!project.settings) {
+            project.settings = {
+              fontSize: fontSize.value,
+              indentSize: indentSize.value,
+              defaultListType: defaultListType.value,
+              showIndentGuides: showIndentGuides.value
+            }
+          }
+          
           function migrateItems(items) {
             items.forEach(item => {
               if (item.type && !item.childrenType) {
