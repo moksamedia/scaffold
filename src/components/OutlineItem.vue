@@ -132,7 +132,7 @@
       <div
         v-if="item.longNotes && item.longNotes.length > 0"
         class="long-notes"
-        :style="{ marginLeft: indentSize * 2 + 'px' }"
+        :style="{ marginLeft: 64 - 30 + fontSize + 'px' /* a hack to align with oultline text */ }"
       >
         <div v-for="note in item.longNotes" :key="note.id" v-show="!note.hidden" class="long-note">
           <div class="long-note-header" @click="toggleLongNote(note.id)">
@@ -207,6 +207,14 @@
         <q-card-section class="row items-center">
           <div class="text-h6">{{ editingNote ? 'Edit' : 'Add' }} Long Note</div>
           <q-space />
+          <div v-if="isAutosaving" class="text-caption text-primary q-mr-sm">
+            <q-spinner-dots size="16px" class="q-mr-xs" />
+            Autosaving...
+          </div>
+          <div v-else-if="lastAutosaved" class="text-caption text-grey q-mr-sm">
+            <q-icon name="check_circle" size="16px" class="q-mr-xs" />
+            Saved
+          </div>
           <q-btn icon="close" flat round dense @click="closeLongNoteDialog" />
         </q-card-section>
 
@@ -218,7 +226,7 @@
               ['bold', 'italic', 'underline'],
               ['unordered', 'ordered', 'outdent', 'indent'],
               ['quote', 'code', 'code_block'],
-              ['link', 'image'],
+              ['link', 'image', 'fullscreen'],
               ['undo', 'redo'],
             ]"
           />
@@ -265,6 +273,11 @@ const showLongNoteDialog = ref(false)
 const noteText = ref('')
 const editingNote = ref(null)
 const isEditing = computed(() => currentlyEditingId.value === props.item.id)
+
+// Autosave state
+const autosaveTimer = ref(null)
+const isAutosaving = ref(false)
+const lastAutosaved = ref(null)
 
 // Watch for long note dialog state changes to update global state
 watch(showLongNoteDialog, (isOpen) => {
@@ -382,16 +395,68 @@ function saveLongNote() {
     if (editingNote.value) {
       store.updateNote(props.item.id, editingNote.value.id, 'long', noteText.value.trim())
     } else {
-      store.addLongNote(props.item.id, noteText.value.trim())
+      const newNoteId = store.addLongNote(props.item.id, noteText.value.trim())
+      // Update editingNote so subsequent saves update instead of creating new
+      if (newNoteId) {
+        editingNote.value = props.item.longNotes.find((n) => n.id === newNoteId)
+      }
     }
+    lastAutosaved.value = new Date()
   }
   closeLongNoteDialog()
 }
 
+function autosaveLongNote() {
+  if (!noteText.value.trim() || !showLongNoteDialog.value) return
+
+  isAutosaving.value = true
+
+  if (editingNote.value) {
+    store.updateNote(props.item.id, editingNote.value.id, 'long', noteText.value.trim())
+  } else {
+    // For new notes, create and track them
+    const newNoteId = store.addLongNote(props.item.id, noteText.value.trim())
+    // Find the newly created note from the item's longNotes array
+    editingNote.value = props.item.longNotes.find((n) => n.id === newNoteId)
+  }
+
+  lastAutosaved.value = new Date()
+
+  // Clear autosaving indicator after a short delay
+  setTimeout(() => {
+    isAutosaving.value = false
+  }, 500)
+}
+
+// Watch for changes to noteText and trigger autosave
+watch(noteText, (newValue) => {
+  if (!showLongNoteDialog.value) return
+
+  // Clear existing timer
+  if (autosaveTimer.value) {
+    clearTimeout(autosaveTimer.value)
+  }
+
+  // Only autosave if there's content
+  if (newValue.trim()) {
+    autosaveTimer.value = setTimeout(() => {
+      autosaveLongNote()
+    }, 2000) // Autosave after 2 seconds of inactivity
+  }
+})
+
 function closeLongNoteDialog() {
+  // Clear any pending autosave
+  if (autosaveTimer.value) {
+    clearTimeout(autosaveTimer.value)
+    autosaveTimer.value = null
+  }
+
   showLongNoteDialog.value = false
   noteText.value = ''
   editingNote.value = null
+  lastAutosaved.value = null
+  isAutosaving.value = false
 }
 
 function deleteLongNote(noteId) {

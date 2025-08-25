@@ -258,14 +258,16 @@ export const useOutlineStore = defineStore('outline', () => {
 
     const item = findItemById(currentProject.value.lists, itemId)
     if (item) {
+      const noteId = generateId()
       item.longNotes.push({
-        id: generateId(),
+        id: noteId,
         text,
-        collapsed: true,
+        collapsed: false,
         createdAt: new Date().toISOString(),
       })
       currentProject.value.updatedAt = new Date().toISOString()
       saveToLocalStorage()
+      return noteId
     }
   }
 
