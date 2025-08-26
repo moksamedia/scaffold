@@ -84,6 +84,9 @@
         <q-btn round dense flat icon="upload" @click="handleImport">
           <q-tooltip>Import JSON</q-tooltip>
         </q-btn>
+        <q-btn round dense flat icon="bookmark" color="secondary" @click="showSaveVersionDialog = true">
+          <q-tooltip>Save Version</q-tooltip>
+        </q-btn>
       </div>
 
       <div v-if="currentProject.lists.length === 0" class="text-grey-6 q-pa-lg text-center">
@@ -107,11 +110,35 @@
       <q-icon name="folder_open" size="64px" color="grey-4" />
       <div class="q-mt-md">Select or create a project to get started</div>
     </div>
+
+    <!-- Save Version Dialog -->
+    <q-dialog v-model="showSaveVersionDialog">
+      <q-card style="min-width: 400px">
+        <q-card-section>
+          <div class="text-h6">Save Version</div>
+        </q-card-section>
+        
+        <q-card-section>
+          <q-input
+            v-model="versionName"
+            label="Version Name (optional)"
+            hint="Leave empty to use timestamp"
+            autofocus
+            @keyup.enter="saveVersionManually"
+          />
+        </q-card-section>
+        
+        <q-card-actions align="right">
+          <q-btn flat label="Cancel" @click="showSaveVersionDialog = false" />
+          <q-btn flat label="Save" color="primary" @click="saveVersionManually" />
+        </q-card-actions>
+      </q-card>
+    </q-dialog>
   </div>
 </template>
 
 <script setup>
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import { useOutlineStore } from 'stores/outline-store'
 import { storeToRefs } from 'pinia'
 import { useQuasar } from 'quasar'
@@ -122,6 +149,10 @@ const { currentProject, canUndo, canRedo, allLongNotesVisible } = storeToRefs(st
 const $q = useQuasar()
 
 const isMac = computed(() => navigator.platform.toUpperCase().indexOf('MAC') >= 0)
+
+// Save version dialog
+const showSaveVersionDialog = ref(false)
+const versionName = ref('')
 
 function addRootItem() {
   store.addRootListItem()
@@ -194,6 +225,22 @@ function expandAllNotes() {
 
 function toggleAllLongNotesVisibility() {
   store.showHideAllLongNotes(!allLongNotesVisible.value)
+}
+
+function saveVersionManually() {
+  if (!currentProject.value) return
+  
+  store.saveVersion(versionName.value || null, 'manual')
+  
+  showSaveVersionDialog.value = false
+  versionName.value = ''
+  
+  $q.notify({
+    type: 'positive',
+    message: 'Version saved successfully',
+    position: 'top',
+    timeout: 2000
+  })
 }
 </script>
 
