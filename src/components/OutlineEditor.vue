@@ -230,17 +230,26 @@ function toggleAllLongNotesVisibility() {
 function saveVersionManually() {
   if (!currentProject.value) return
   
-  store.saveVersion(versionName.value || null, 'manual')
+  const versionId = store.saveVersion(versionName.value || null, 'manual')
   
   showSaveVersionDialog.value = false
   versionName.value = ''
   
-  $q.notify({
-    type: 'positive',
-    message: 'Version saved successfully',
-    position: 'top',
-    timeout: 2000
-  })
+  if (versionId) {
+    $q.notify({
+      type: 'positive',
+      message: 'Version saved successfully',
+      position: 'top',
+      timeout: 2000
+    })
+  } else {
+    $q.notify({
+      type: 'info',
+      message: 'No changes since last version - nothing to save',
+      position: 'top',
+      timeout: 2000
+    })
+  }
 }
 </script>
 

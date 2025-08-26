@@ -1036,6 +1036,22 @@ export const useOutlineStore = defineStore('outline', () => {
   function saveVersion(name = null, trigger = 'manual') {
     if (!currentProject.value) return
     
+    // Generate current project data for comparison
+    const currentData = exportAsJSON([currentProject.value], currentProject.value.id)
+    
+    // Check if this version is identical to the latest saved version
+    const latestVersion = getLatestVersion(currentProject.value.id)
+    if (latestVersion && latestVersion.data) {
+      // Compare the JSON strings (excluding metadata like timestamps)
+      const currentProjectJson = JSON.stringify(currentData.projects[0])
+      const latestProjectJson = JSON.stringify(latestVersion.data.projects[0])
+      
+      if (currentProjectJson === latestProjectJson) {
+        // Project is identical to latest version - don't save duplicate
+        return null
+      }
+    }
+    
     const versionId = generateId()
     const timestamp = Date.now()
     
@@ -1065,13 +1081,40 @@ export const useOutlineStore = defineStore('outline', () => {
         items: itemCount,
         notes: noteCount
       },
-      data: exportAsJSON([currentProject.value], currentProject.value.id)
+      data: currentData
     }
     
     const key = `scaffold-version-${currentProject.value.id}-${versionId}`
     localStorage.setItem(key, JSON.stringify(versionData))
     
     return versionId
+  }
+
+  function getLatestVersion(projectId) {
+    const versionKeys = []
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i)
+      if (key && key.startsWith(`scaffold-version-${projectId}-`)) {
+        versionKeys.push(key)
+      }
+    }
+    
+    const versions = versionKeys
+      .map((key) => {
+        const data = localStorage.getItem(key)
+        if (data) {
+          try {
+            return JSON.parse(data)
+          } catch {
+            return null
+          }
+        }
+        return null
+      })
+      .filter((v) => v !== null)
+      .sort((a, b) => b.timestamp - a.timestamp)
+    
+    return versions.length > 0 ? versions[0] : null
   }
 
   function restoreVersion(version) {
