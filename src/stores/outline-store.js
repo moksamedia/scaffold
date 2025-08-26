@@ -102,17 +102,20 @@ export const useOutlineStore = defineStore('outline', () => {
   }
 
   function createProject(name) {
+    // Load program-wide settings for defaults
+    const programSettings = JSON.parse(localStorage.getItem('scaffold-program-settings') || '{}')
+    
     const project = {
       id: generateId(),
       name,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
       lists: [],
-      rootListType: defaultListType.value,
+      rootListType: programSettings.defaultListType || defaultListType.value,
       settings: {
-        fontSize: fontSize.value,
-        indentSize: indentSize.value,
-        defaultListType: defaultListType.value,
+        fontSize: programSettings.defaultFontSize || fontSize.value,
+        indentSize: programSettings.defaultIndentSize || indentSize.value,
+        defaultListType: programSettings.defaultListType || defaultListType.value,
         showIndentGuides: showIndentGuides.value,
       },
     }

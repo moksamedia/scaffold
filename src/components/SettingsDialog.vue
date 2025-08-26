@@ -88,34 +88,34 @@
               <div class="row q-col-gutter-md">
                 <div class="col-12 col-md-6">
                   <q-slider
-                    v-model="projectSettings.fontSize"
+                    v-model="fontSize"
                     :min="12"
                     :max="40"
                     :step="1"
                     label
                     label-always
-                    :label-value="'Front Size: ' + projectSettings.fontSize + 'px'"
-                    @change="updateProjectSettings"
+                    :label-value="'Font Size: ' + fontSize + 'px'"
+                    @update:model-value="store.setFontSize"
                   />
                 </div>
                 <div class="col-12 col-md-6">
                   <q-slider
-                    v-model="projectSettings.indentSize"
+                    v-model="indentSize"
                     :min="5"
                     :max="50"
                     :step="1"
                     label
                     label-always
-                    :label-value="'Indent Size: ' + projectSettings.indentSize + 'px'"
-                    @change="updateProjectSettings"
+                    :label-value="'Indent Size: ' + indentSize + 'px'"
+                    @update:model-value="store.setIndentSize"
                   />
                 </div>
               </div>
 
               <q-checkbox
-                v-model="projectSettings.showIndentGuides"
+                v-model="showIndentGuides"
                 label="Show indent guides"
-                @update:model-value="updateProjectSettings"
+                @update:model-value="store.setShowIndentGuides"
               />
             </div>
 
@@ -124,16 +124,16 @@
             <div class="q-mb-lg">
               <div class="text-subtitle1 q-mb-sm">Default List Type</div>
               <q-radio
-                v-model="projectSettings.defaultListType"
+                v-model="defaultListType"
                 val="ordered"
                 label="Numbered (1, 2, 3)"
-                @update:model-value="updateProjectSettings"
+                @update:model-value="store.setDefaultListType"
               />
               <q-radio
-                v-model="projectSettings.defaultListType"
+                v-model="defaultListType"
                 val="unordered"
                 label="Bulleted (•)"
-                @update:model-value="updateProjectSettings"
+                @update:model-value="store.setDefaultListType"
               />
             </div>
 
@@ -276,13 +276,7 @@ const programSettings = ref({
   defaultIndentSize: 32,
 })
 
-// Project settings (reactive copy)
-const projectSettings = ref({
-  fontSize: 14,
-  indentSize: 32,
-  showIndentGuides: true,
-  defaultListType: 'ordered',
-})
+// Project settings are now accessed directly through store refs
 
 // Versions list
 const versions = ref([])
@@ -295,12 +289,10 @@ const autoVersioningOptions = [
 
 onMounted(() => {
   loadProgramSettings()
-  loadProjectSettings()
   loadVersions()
 })
 
 watch(currentProject, () => {
-  loadProjectSettings()
   loadVersions()
 })
 
@@ -311,23 +303,9 @@ function loadProgramSettings() {
   }
 }
 
-function loadProjectSettings() {
-  if (currentProject.value) {
-    projectSettings.value = {
-      fontSize: fontSize.value,
-      indentSize: indentSize.value,
-      showIndentGuides: showIndentGuides.value,
-      defaultListType: defaultListType.value,
-    }
-  }
-}
+// No longer needed - projectSettings is now computed from store refs
 
-function updateProjectSettings() {
-  store.setFontSize(projectSettings.value.fontSize)
-  store.setIndentSize(projectSettings.value.indentSize)
-  store.setShowIndentGuides(projectSettings.value.showIndentGuides)
-  store.setDefaultListType(projectSettings.value.defaultListType)
-}
+// Project settings are now automatically synced through direct store access
 
 function loadVersions() {
   if (!currentProject.value) {
