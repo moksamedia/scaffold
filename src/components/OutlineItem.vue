@@ -220,6 +220,7 @@
 
         <q-card-section class="q-pt-none">
           <q-editor
+            ref="longNoteEditor"
             v-model="noteText"
             min-height="300px"
             :toolbar="[
@@ -228,7 +229,16 @@
               ['quote', 'code', 'code_block'],
               ['link', 'image', 'fullscreen'],
               ['undo', 'redo'],
+              ['upload', 'save'],
+              [
+                {
+                  icon: 'wrap_text',
+                  tip: 'Remove line breaks from selection',
+                  handler: stripLineBreaks
+                }
+              ]
             ]"
+            @keydown="handleEditorKeydown"
           />
         </q-card-section>
 
@@ -273,6 +283,7 @@ const showLongNoteDialog = ref(false)
 const noteText = ref('')
 const editingNote = ref(null)
 const isEditing = computed(() => currentlyEditingId.value === props.item.id)
+const longNoteEditor = ref(null)
 
 // Autosave state
 const autosaveTimer = ref(null)
@@ -481,6 +492,60 @@ function stripHtml(text) {
   const tmp = document.createElement('div')
   tmp.innerHTML = text
   return tmp.textContent || tmp.innerText || ''
+}
+
+function handleEditorKeydown(event) {
+  // Handle Tab key for indent
+  if (event.key === 'Tab' && !event.shiftKey) {
+    event.preventDefault()
+    // Execute indent command in the editor
+    if (longNoteEditor.value) {
+      longNoteEditor.value.runCmd('indent')
+    }
+  }
+  // Handle Shift+Tab for outdent
+  else if (event.key === 'Tab' && event.shiftKey) {
+    event.preventDefault()
+    // Execute outdent command in the editor
+    if (longNoteEditor.value) {
+      longNoteEditor.value.runCmd('outdent')
+    }
+  }
+}
+
+function stripLineBreaks() {
+  if (!longNoteEditor.value) return
+  
+  // Get the editor's Quill instance
+  const quill = longNoteEditor.value.getQuill()
+  if (!quill) return
+  
+  // Get current selection
+  const selection = quill.getSelection()
+  if (!selection || selection.length === 0) {
+    // If no selection, select all text
+    quill.setSelection(0, quill.getText().length)
+  }
+  
+  // Get selected text
+  const range = quill.getSelection()
+  if (!range) return
+  
+  // Get the selected text
+  const selectedText = quill.getText(range.index, range.length)
+  
+  // Strip line breaks - replace multiple whitespace/linebreaks with single space
+  const cleanedText = selectedText
+    .replace(/\r\n|\r|\n/g, ' ')  // Replace line breaks with space
+    .replace(/\s+/g, ' ')          // Replace multiple spaces with single space
+    .trim()                        // Remove leading/trailing whitespace
+  
+  // Delete the selected text and insert cleaned version
+  quill.deleteText(range.index, range.length)
+  quill.insertText(range.index, cleanedText)
+  
+  // Reselect the cleaned text
+  quill.setSelection(range.index, cleanedText.length)
 }
 
 /*
