@@ -223,6 +223,13 @@
             ref="longNoteEditor"
             v-model="noteText"
             min-height="300px"
+            :definitions="{
+              removeBreaks: {
+                label: 'Remove \\n',
+                tip: 'Remove line breaks from selection',
+                handler: stripLineBreaks,
+              },
+            }"
             :toolbar="[
               ['bold', 'italic', 'underline'],
               ['unordered', 'ordered', 'outdent', 'indent'],
@@ -230,13 +237,7 @@
               ['link', 'image', 'fullscreen'],
               ['undo', 'redo'],
               ['upload', 'save'],
-              [
-                {
-                  icon: 'wrap_text',
-                  tip: 'Remove line breaks from selection',
-                  handler: stripLineBreaks
-                }
-              ]
+              ['removeBreaks'],
             ]"
             @keydown="handleEditorKeydown"
           />
@@ -515,37 +516,40 @@ function handleEditorKeydown(event) {
 
 function stripLineBreaks() {
   if (!longNoteEditor.value) return
+
+  // Get the current HTML content
+  const currentHtml = noteText.value
   
-  // Get the editor's Quill instance
-  const quill = longNoteEditor.value.getQuill()
-  if (!quill) return
+  // Get the selection or use all text
+  const selection = window.getSelection()
+  const selectedText = selection.toString()
   
-  // Get current selection
-  const selection = quill.getSelection()
-  if (!selection || selection.length === 0) {
-    // If no selection, select all text
-    quill.setSelection(0, quill.getText().length)
+  if (selectedText) {
+    // If there's a selection, replace it with cleaned version
+    const cleanedText = selectedText
+      .replace(/\r\n|\r|\n/g, ' ') // Replace line breaks with space
+      .replace(/<br\s*\/?>/gi, ' ') // Replace HTML breaks
+      .replace(/\s+/g, ' ') // Replace multiple spaces with single space
+      .trim() // Remove leading/trailing whitespace
+    
+    // Use the editor's built-in method to replace selection
+    document.execCommand('insertText', false, cleanedText)
+  } else {
+    // If no selection, clean the entire content
+    // Create a temporary div to parse HTML
+    const temp = document.createElement('div')
+    temp.innerHTML = currentHtml
+    
+    // Get text content and clean it
+    const textContent = temp.innerText || temp.textContent || ''
+    const cleanedText = textContent
+      .replace(/\r\n|\r|\n/g, ' ') // Replace line breaks with space
+      .replace(/\s+/g, ' ') // Replace multiple spaces with single space
+      .trim() // Remove leading/trailing whitespace
+    
+    // Update the editor content
+    noteText.value = `<p>${cleanedText}</p>`
   }
-  
-  // Get selected text
-  const range = quill.getSelection()
-  if (!range) return
-  
-  // Get the selected text
-  const selectedText = quill.getText(range.index, range.length)
-  
-  // Strip line breaks - replace multiple whitespace/linebreaks with single space
-  const cleanedText = selectedText
-    .replace(/\r\n|\r|\n/g, ' ')  // Replace line breaks with space
-    .replace(/\s+/g, ' ')          // Replace multiple spaces with single space
-    .trim()                        // Remove leading/trailing whitespace
-  
-  // Delete the selected text and insert cleaned version
-  quill.deleteText(range.index, range.length)
-  quill.insertText(range.index, cleanedText)
-  
-  // Reselect the cleaned text
-  quill.setSelection(range.index, cleanedText.length)
 }
 
 /*

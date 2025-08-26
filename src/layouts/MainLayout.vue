@@ -13,6 +13,16 @@
           <q-tooltip>Toggle Sidebar ({{ isMac ? 'Cmd' : 'Ctrl' }}+B)</q-tooltip>
         </q-btn>
         <q-toolbar-title>Scaffold</q-toolbar-title>
+        <q-btn
+          flat
+          dense
+          round
+          icon="settings"
+          aria-label="Settings"
+          @click="showSettings = true"
+        >
+          <q-tooltip>Settings</q-tooltip>
+        </q-btn>
       </q-toolbar>
     </q-header>
 
@@ -21,14 +31,18 @@
     <q-page-container>
       <router-view />
     </q-page-container>
+    
+    <SettingsDialog v-model="showSettings" />
   </q-layout>
 </template>
 
 <script setup>
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import ProjectsSidebar from 'components/ProjectsSidebar.vue'
+import SettingsDialog from 'components/SettingsDialog.vue'
 
 const sidebarRef = ref(null)
+const showSettings = ref(false)
 const isMac = computed(() => navigator.platform.toUpperCase().indexOf('MAC') >= 0)
 
 function toggleSidebar() {

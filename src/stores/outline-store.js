@@ -4,6 +4,7 @@ import { ref, computed } from 'vue'
 import { exportAsMarkdown } from 'src/utils/export/markdown.js'
 import { exportAsDocx } from 'src/utils/export/docx.js'
 import { 
+  exportAsJSON,
   exportSingleProjectAsJSON, 
   exportAllProjectsAsJSON,
   importFromJSON 
@@ -1029,7 +1030,116 @@ export const useOutlineStore = defineStore('outline', () => {
     }
   }
 
+  function saveVersion(name = null, trigger = 'manual') {
+    if (!currentProject.value) return
+    
+    const versionId = generateId()
+    const timestamp = Date.now()
+    
+    // Calculate stats for the version
+    let itemCount = 0
+    let noteCount = 0
+    
+    function countItems(items) {
+      items.forEach(item => {
+        itemCount++
+        noteCount += (item.shortNotes?.length || 0) + (item.longNotes?.length || 0)
+        if (item.children) {
+          countItems(item.children)
+        }
+      })
+    }
+    
+    countItems(currentProject.value.lists)
+    
+    const versionData = {
+      id: versionId,
+      projectId: currentProject.value.id,
+      name: name,
+      timestamp: timestamp,
+      trigger: trigger,
+      stats: {
+        items: itemCount,
+        notes: noteCount
+      },
+      data: exportAsJSON([currentProject.value], currentProject.value.id)
+    }
+    
+    const key = `scaffold-version-${currentProject.value.id}-${versionId}`
+    localStorage.setItem(key, JSON.stringify(versionData))
+    
+    return versionId
+  }
+
+  function restoreVersion(version) {
+    if (!version || !version.data) return null
+    
+    try {
+      // Import the version data
+      const imported = importFromJSON(version.data)
+      if (imported.projects && imported.projects.length > 0) {
+        const restoredProject = imported.projects[0]
+        
+        // Create new ID and update name
+        restoredProject.id = generateId()
+        restoredProject.name = `${restoredProject.name} (Restored ${new Date(version.timestamp).toLocaleDateString()})`
+        restoredProject.createdAt = new Date().toISOString()
+        restoredProject.updatedAt = new Date().toISOString()
+        
+        // Add to projects
+        projects.value.push(restoredProject)
+        currentProjectId.value = restoredProject.id
+        saveToLocalStorage()
+        
+        return restoredProject.id
+      }
+    } catch (error) {
+      console.error('Failed to restore version:', error)
+    }
+    
+    return null
+  }
+
+  function setupAutoVersioning() {
+    // Load settings
+    const settings = localStorage.getItem('scaffold-program-settings')
+    if (!settings) return
+    
+    const programSettings = JSON.parse(settings)
+    
+    // On program close
+    if (programSettings.autoVersioning?.includes('close')) {
+      window.addEventListener('beforeunload', () => {
+        if (currentProject.value) {
+          saveVersion(null, 'auto-close')
+        }
+      })
+    }
+    
+    // At intervals
+    if (programSettings.autoVersioning?.includes('interval')) {
+      const intervalMinutes = programSettings.versioningInterval || 10
+      setInterval(() => {
+        if (currentProject.value) {
+          saveVersion(null, 'auto-interval')
+        }
+      }, intervalMinutes * 60 * 1000)
+    }
+  }
+
   loadFromLocalStorage()
+  
+  // Setup auto-versioning on load
+  setTimeout(setupAutoVersioning, 100)
+  
+  // Save version on start if enabled
+  const settings = localStorage.getItem('scaffold-program-settings')
+  if (settings) {
+    const programSettings = JSON.parse(settings)
+    if (programSettings.autoVersioning?.includes('start') && currentProject.value) {
+      saveVersion(null, 'auto-start')
+    }
+  }
 
   return {
     projects,
@@ -1082,5 +1192,7 @@ export const useOutlineStore = defineStore('outline', () => {
     undo,
     redo,
     clearHistory,
+    saveVersion,
+    restoreVersion,
   }
 })
