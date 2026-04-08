@@ -105,12 +105,13 @@ function processItems(items) {
   })
 }
 
-function normalizeImportedItems(items = []) {
+function normalizeImportedItems(items = [], parentId = null) {
   return items.map((item) => {
     const kind = item.kind || 'item'
     const normalized = {
       id: item.id,
       kind,
+      parentId,
       text: kind === 'divider' ? '' : (item.text || ''),
       collapsed: kind === 'divider' ? false : !!item.collapsed,
       childrenType: item.childrenType || 'ordered',
@@ -125,7 +126,9 @@ function normalizeImportedItems(items = []) {
 
     normalized.shortNotes = Array.isArray(item.shortNotes) ? item.shortNotes : []
     normalized.longNotes = Array.isArray(item.longNotes) ? item.longNotes : []
-    normalized.children = Array.isArray(item.children) ? normalizeImportedItems(item.children) : []
+    normalized.children = Array.isArray(item.children)
+      ? normalizeImportedItems(item.children, item.id)
+      : []
     return normalized
   })
 }

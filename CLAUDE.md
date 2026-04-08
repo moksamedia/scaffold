@@ -46,8 +46,7 @@ Scaffold is a Quasar Vue 3 application for creating and managing hierarchical ou
 
 ### `/src/components/`
 - `OutlineItem.vue` - Recursive component for rendering nested list items with q-editor enhancements
-- `OutlineEditor.vue` - Main editing interface with project header and controls, export menu, bulk operations, version saving
-- `OutlineEditor.vue` - Main editing interface with section-aware root numbering and root divider insertion
+- `OutlineEditor.vue` - Main editing interface with project header, controls, export menu, bulk operations, version saving, section-aware root numbering, and root divider insertion
 - `ProjectsSidebar.vue` - Left panel for project management and real-time settings controls
 - `MainLayout.vue` - Application layout with sidebar toggle and settings dialog integration
 - `SettingsDialog.vue` - Tabbed dialog for program-wide and project-specific settings, version history management
@@ -55,8 +54,7 @@ Scaffold is a Quasar Vue 3 application for creating and managing hierarchical ou
 ### `/src/utils/export/`
 - `markdown.js` - Markdown export functionality with HTML to markdown conversion and blockquote handling
 - `docx.js` - DOCX export with dynamic nesting levels, Word styles, and paragraph structure preservation
-- `json.js` - JSON export/import with schema validation, conflict resolution, and format versioning
-- `json.js` - JSON export/import with root-entry `kind` persistence (`item`/`divider`)
+- `json.js` - JSON export/import with schema validation, conflict resolution, format versioning, and root-entry `kind` persistence (`item`/`divider`)
 
 ### Key Technical Patterns
 - Reactive Vue 3 Composition API throughout

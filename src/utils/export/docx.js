@@ -118,15 +118,15 @@ export async function exportAsDocx(project) {
             spacing: { after: 300 },
           }),
           // Process all items
-          ...(await processItemsForDocx(project.lists, 0, project.rootListType)),
+          ...(await processItemsForDocx(project.lists, 0, project.rootListType, 0)),
         ],
       },
     ],
   })
 
-  async function processItemsForDocx(items, level = 0, listType = 'unordered') {
+  async function processItemsForDocx(items, level = 0, listType = 'unordered', orderedListSection = 0) {
     const paragraphs = []
-    let orderedListSection = 0
+    let currentOrderedSection = orderedListSection
 
     for (let index = 0; index < items.length; index++) {
       const item = items[index]
@@ -134,7 +134,7 @@ export async function exportAsDocx(project) {
 
       if (kind === 'divider') {
         if (level === 0) {
-          orderedListSection += 1
+          currentOrderedSection += 1
           paragraphs.push(
             new Paragraph({
               text: '────────────────────',
@@ -163,7 +163,7 @@ export async function exportAsDocx(project) {
               numbering: {
                 reference:
                   listType === 'ordered'
-                    ? `ordered-list-${level === 0 ? orderedListSection : 0}`
+                    ? `ordered-list-${currentOrderedSection}`
                     : 'bullet-list',
                 level: level, // Use actual level - no artificial limit
               },
@@ -181,12 +181,13 @@ export async function exportAsDocx(project) {
         }
       }
 
-      // Recursively process children
+      // Recursively process children (inherit root section so ordered lists reset per divider)
       if (item.children && item.children.length > 0) {
         const childParagraphs = await processItemsForDocx(
           item.children,
           level + 1,
           item.childrenType,
+          currentOrderedSection,
         )
         paragraphs.push(...childParagraphs)
       }

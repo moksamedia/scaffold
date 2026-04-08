@@ -205,7 +205,7 @@
     </div>
 
     <div
-      v-if="!item.collapsed && item.children && item.children.length > 0"
+      v-if="!isDivider && !item.collapsed && item.children && item.children.length > 0"
       class="item-children"
       :class="{ 'with-guide': showIndentGuides }"
       :style="{ marginLeft: indentSize + 'px' }"
