@@ -17,6 +17,12 @@ export const useOutlineStore = defineStore('outline', () => {
   const indentSize = ref(32)
   const defaultListType = ref('ordered')
   const showIndentGuides = ref(true)
+  const tibetanFontFamily = ref('Microsoft Himalaya')
+  const tibetanFontSize = ref(20)
+  const tibetanFontColor = ref('#000000')
+  const nonTibetanFontFamily = ref('Aptos, sans-serif')
+  const nonTibetanFontSize = ref(16)
+  const nonTibetanFontColor = ref('#000000')
   const undoStack = ref([])
   const redoStack = ref([])
   const maxHistorySize = 50
@@ -117,6 +123,14 @@ export const useOutlineStore = defineStore('outline', () => {
         indentSize: programSettings.defaultIndentSize || indentSize.value,
         defaultListType: programSettings.defaultListType || defaultListType.value,
         showIndentGuides: showIndentGuides.value,
+        tibetanFontFamily: programSettings.defaultTibetanFontFamily || tibetanFontFamily.value,
+        tibetanFontSize: programSettings.defaultTibetanFontSize || tibetanFontSize.value,
+        tibetanFontColor: programSettings.defaultTibetanFontColor || tibetanFontColor.value,
+        nonTibetanFontFamily:
+          programSettings.defaultNonTibetanFontFamily || nonTibetanFontFamily.value,
+        nonTibetanFontSize: programSettings.defaultNonTibetanFontSize || nonTibetanFontSize.value,
+        nonTibetanFontColor:
+          programSettings.defaultNonTibetanFontColor || nonTibetanFontColor.value,
       },
     }
     projects.value.push(project)
@@ -155,6 +169,12 @@ export const useOutlineStore = defineStore('outline', () => {
       indentSize.value = project.settings.indentSize
       defaultListType.value = project.settings.defaultListType
       showIndentGuides.value = project.settings.showIndentGuides
+      tibetanFontFamily.value = project.settings.tibetanFontFamily || 'Microsoft Himalaya'
+      tibetanFontSize.value = project.settings.tibetanFontSize || 20
+      tibetanFontColor.value = project.settings.tibetanFontColor || '#000000'
+      nonTibetanFontFamily.value = project.settings.nonTibetanFontFamily || 'Aptos, sans-serif'
+      nonTibetanFontSize.value = project.settings.nonTibetanFontSize || 16
+      nonTibetanFontColor.value = project.settings.nonTibetanFontColor || '#000000'
     }
 
     saveToLocalStorage()
@@ -185,10 +205,14 @@ export const useOutlineStore = defineStore('outline', () => {
   }
 
   function findItemById(items, id) {
+    if (!items) return null
+    
     for (const item of items) {
       if (item.id === id) return item
-      const found = findItemById(item.children, id)
-      if (found) return found
+      if (item.children) {
+        const found = findItemById(item.children, id)
+        if (found) return found
+      }
     }
     return null
   }
@@ -710,6 +734,66 @@ export const useOutlineStore = defineStore('outline', () => {
     saveToLocalStorage()
   }
 
+  function setTibetanFontFamily(value) {
+    tibetanFontFamily.value = value
+    if (currentProject.value) {
+      if (!currentProject.value.settings) currentProject.value.settings = {}
+      currentProject.value.settings.tibetanFontFamily = value
+      currentProject.value.updatedAt = new Date().toISOString()
+    }
+    saveToLocalStorage()
+  }
+
+  function setTibetanFontSize(value) {
+    tibetanFontSize.value = value
+    if (currentProject.value) {
+      if (!currentProject.value.settings) currentProject.value.settings = {}
+      currentProject.value.settings.tibetanFontSize = value
+      currentProject.value.updatedAt = new Date().toISOString()
+    }
+    saveToLocalStorage()
+  }
+
+  function setTibetanFontColor(value) {
+    tibetanFontColor.value = value
+    if (currentProject.value) {
+      if (!currentProject.value.settings) currentProject.value.settings = {}
+      currentProject.value.settings.tibetanFontColor = value
+      currentProject.value.updatedAt = new Date().toISOString()
+    }
+    saveToLocalStorage()
+  }
+
+  function setNonTibetanFontFamily(value) {
+    nonTibetanFontFamily.value = value
+    if (currentProject.value) {
+      if (!currentProject.value.settings) currentProject.value.settings = {}
+      currentProject.value.settings.nonTibetanFontFamily = value
+      currentProject.value.updatedAt = new Date().toISOString()
+    }
+    saveToLocalStorage()
+  }
+
+  function setNonTibetanFontSize(value) {
+    nonTibetanFontSize.value = value
+    if (currentProject.value) {
+      if (!currentProject.value.settings) currentProject.value.settings = {}
+      currentProject.value.settings.nonTibetanFontSize = value
+      currentProject.value.updatedAt = new Date().toISOString()
+    }
+    saveToLocalStorage()
+  }
+
+  function setNonTibetanFontColor(value) {
+    nonTibetanFontColor.value = value
+    if (currentProject.value) {
+      if (!currentProject.value.settings) currentProject.value.settings = {}
+      currentProject.value.settings.nonTibetanFontColor = value
+      currentProject.value.updatedAt = new Date().toISOString()
+    }
+    saveToLocalStorage()
+  }
+
   function saveToLocalStorage() {
     localStorage.setItem('outline-projects', JSON.stringify(projects.value))
     localStorage.setItem('outline-current-project', currentProjectId.value || '')
@@ -717,6 +801,12 @@ export const useOutlineStore = defineStore('outline', () => {
     localStorage.setItem('outline-indent-size', indentSize.value.toString())
     localStorage.setItem('outline-default-list-type', defaultListType.value)
     localStorage.setItem('outline-show-indent-guides', showIndentGuides.value.toString())
+    localStorage.setItem('outline-tibetan-font-family', tibetanFontFamily.value)
+    localStorage.setItem('outline-tibetan-font-size', tibetanFontSize.value.toString())
+    localStorage.setItem('outline-tibetan-font-color', tibetanFontColor.value)
+    localStorage.setItem('outline-non-tibetan-font-family', nonTibetanFontFamily.value)
+    localStorage.setItem('outline-non-tibetan-font-size', nonTibetanFontSize.value.toString())
+    localStorage.setItem('outline-non-tibetan-font-color', nonTibetanFontColor.value)
   }
 
   function createExampleProject() {
@@ -950,6 +1040,12 @@ export const useOutlineStore = defineStore('outline', () => {
         indentSize: indentSize.value,
         defaultListType: defaultListType.value,
         showIndentGuides: showIndentGuides.value,
+        tibetanFontFamily: tibetanFontFamily.value,
+        tibetanFontSize: tibetanFontSize.value,
+        tibetanFontColor: tibetanFontColor.value,
+        nonTibetanFontFamily: nonTibetanFontFamily.value,
+        nonTibetanFontSize: nonTibetanFontSize.value,
+        nonTibetanFontColor: nonTibetanFontColor.value,
       },
     }
     projects.value.push(project)
@@ -964,6 +1060,12 @@ export const useOutlineStore = defineStore('outline', () => {
     const savedIndentSize = localStorage.getItem('outline-indent-size')
     const savedDefaultListType = localStorage.getItem('outline-default-list-type')
     const savedShowIndentGuides = localStorage.getItem('outline-show-indent-guides')
+    const savedTibetanFontFamily = localStorage.getItem('outline-tibetan-font-family')
+    const savedTibetanFontSize = localStorage.getItem('outline-tibetan-font-size')
+    const savedTibetanFontColor = localStorage.getItem('outline-tibetan-font-color')
+    const savedNonTibetanFontFamily = localStorage.getItem('outline-non-tibetan-font-family')
+    const savedNonTibetanFontSize = localStorage.getItem('outline-non-tibetan-font-size')
+    const savedNonTibetanFontColor = localStorage.getItem('outline-non-tibetan-font-color')
 
     if (savedFontSize) {
       fontSize.value = parseInt(savedFontSize, 10)
@@ -979,6 +1081,25 @@ export const useOutlineStore = defineStore('outline', () => {
 
     if (savedShowIndentGuides !== null) {
       showIndentGuides.value = savedShowIndentGuides === 'true'
+    }
+
+    if (savedTibetanFontFamily) {
+      tibetanFontFamily.value = savedTibetanFontFamily
+    }
+    if (savedTibetanFontSize) {
+      tibetanFontSize.value = parseInt(savedTibetanFontSize, 10)
+    }
+    if (savedTibetanFontColor) {
+      tibetanFontColor.value = savedTibetanFontColor
+    }
+    if (savedNonTibetanFontFamily) {
+      nonTibetanFontFamily.value = savedNonTibetanFontFamily
+    }
+    if (savedNonTibetanFontSize) {
+      nonTibetanFontSize.value = parseInt(savedNonTibetanFontSize, 10)
+    }
+    if (savedNonTibetanFontColor) {
+      nonTibetanFontColor.value = savedNonTibetanFontColor
     }
 
     if (savedProjects) {
@@ -997,7 +1118,25 @@ export const useOutlineStore = defineStore('outline', () => {
               indentSize: indentSize.value,
               defaultListType: defaultListType.value,
               showIndentGuides: showIndentGuides.value,
+              tibetanFontFamily: tibetanFontFamily.value,
+              tibetanFontSize: tibetanFontSize.value,
+              tibetanFontColor: tibetanFontColor.value,
+              nonTibetanFontFamily: nonTibetanFontFamily.value,
+              nonTibetanFontSize: nonTibetanFontSize.value,
+              nonTibetanFontColor: nonTibetanFontColor.value,
             }
+          } else {
+            project.settings.tibetanFontFamily =
+              project.settings.tibetanFontFamily || tibetanFontFamily.value
+            project.settings.tibetanFontSize = project.settings.tibetanFontSize || tibetanFontSize.value
+            project.settings.tibetanFontColor =
+              project.settings.tibetanFontColor || tibetanFontColor.value
+            project.settings.nonTibetanFontFamily =
+              project.settings.nonTibetanFontFamily || nonTibetanFontFamily.value
+            project.settings.nonTibetanFontSize =
+              project.settings.nonTibetanFontSize || nonTibetanFontSize.value
+            project.settings.nonTibetanFontColor =
+              project.settings.nonTibetanFontColor || nonTibetanFontColor.value
           }
 
           function migrateItems(items) {
@@ -1195,6 +1334,12 @@ export const useOutlineStore = defineStore('outline', () => {
     indentSize,
     defaultListType,
     showIndentGuides,
+    tibetanFontFamily,
+    tibetanFontSize,
+    tibetanFontColor,
+    nonTibetanFontFamily,
+    nonTibetanFontSize,
+    nonTibetanFontColor,
     canUndo,
     canRedo,
     createProject,
@@ -1235,6 +1380,12 @@ export const useOutlineStore = defineStore('outline', () => {
     setIndentSize,
     setDefaultListType,
     setShowIndentGuides,
+    setTibetanFontFamily,
+    setTibetanFontSize,
+    setTibetanFontColor,
+    setNonTibetanFontFamily,
+    setNonTibetanFontSize,
+    setNonTibetanFontColor,
     undo,
     redo,
     clearHistory,

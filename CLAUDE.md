@@ -14,7 +14,7 @@ Scaffold is a Quasar Vue 3 application for creating and managing hierarchical ou
 - Toggle between ordered/unordered lists at any level
 - Short notes (inline) and long notes (collapsible blocks with rich text)
 - Undo/redo functionality with 50-item history
-- Per-project settings: font size, indent size, default list type, indent guides
+- Per-project settings: font size, indent size, default list type, indent guides, and script-specific typography
 - Keyboard navigation: TAB (next sibling), Shift+TAB (next item in outline)
 - Auto-scroll to visible items during navigation
 - Click-to-edit text interface
@@ -27,21 +27,25 @@ Scaffold is a Quasar Vue 3 application for creating and managing hierarchical ou
 
 ### `/src/stores/outline-store.js`
 - Pinia store with all application state management
-- Project CRUD operations
+- Project CRUD operations with program-wide default settings
 - List item operations (create, update, delete, move, indent/outdent)
-- Notes management (short/long notes)
+- Notes management (short/long notes) with visibility controls
 - Undo/redo system with state snapshots
-- Per-project settings storage and restoration
+- Per-project settings storage and restoration with real-time sync
 - Navigation functions for keyboard shortcuts
 - LocalStorage persistence with migration logic
 - Export functionality integration
 - Bulk collapse/expand operations for items and notes
+- Versioning system: saveVersion(), restoreVersion(), getLatestVersion() with duplicate detection
+- Settings synchronization between UI components
+- Dual-script typography settings (Tibetan/non-Tibetan family, size, color) with program-wide defaults for new projects
 
 ### `/src/components/`
-- `OutlineItem.vue` - Recursive component for rendering nested list items
-- `OutlineEditor.vue` - Main editing interface with project header and controls, export menu, bulk operations
-- `ProjectsSidebar.vue` - Left panel for project management and settings
-- `MainLayout.vue` - Application layout with sidebar toggle
+- `OutlineItem.vue` - Recursive component for rendering nested list items with q-editor enhancements
+- `OutlineEditor.vue` - Main editing interface with project header and controls, export menu, bulk operations, version saving
+- `ProjectsSidebar.vue` - Left panel for project management and real-time settings controls
+- `MainLayout.vue` - Application layout with sidebar toggle and settings dialog integration
+- `SettingsDialog.vue` - Tabbed dialog for program-wide and project-specific settings, version history management
 
 ### `/src/utils/export/`
 - `markdown.js` - Markdown export functionality with HTML to markdown conversion and blockquote handling
@@ -60,6 +64,10 @@ Scaffold is a Quasar Vue 3 application for creating and managing hierarchical ou
 
 ### Recent Implementations
 - Per-project settings storage (font size, indent size, list type, indent guides)
+- Dual-script typography:
+  - Program-wide defaults for new projects only
+  - Per-project override values used as rendering source of truth
+  - Regex-based run segmentation for Tibetan vs non-Tibetan display text
 - TAB navigation: cycles through siblings, Shift+TAB navigates to next item in outline hierarchy
 - Conditional scroll-to-view that only scrolls if item is not already visible
 - Rich text editor for long notes with lists, indentation, quotes, code blocks, links, images
@@ -81,3 +89,20 @@ Scaffold is a Quasar Vue 3 application for creating and managing hierarchical ou
 - Bulk operations: collapse/expand all items and all long notes separately
 - Modular export architecture with separate utility files
 - Context-aware keyboard shortcuts: undo/redo directed to long note editor when active
+- GitHub Pages deployment with automatic CI/CD via GitHub Actions
+- Comprehensive versioning system:
+  - Per-project version history stored in localStorage
+  - Manual and automatic versioning triggers
+  - Duplicate version detection to prevent saving identical versions
+  - Version restoration as new projects
+  - Individual version export as JSON
+  - Version statistics tracking (items, notes count)
+- Settings synchronization:
+  - Direct binding between settings dialog and left panel controls
+  - Program-wide settings as defaults for new projects
+  - Real-time sync across all UI components
+- Q-Editor enhancements:
+  - Tab/Shift+Tab keyboard shortcuts for indenting
+  - Custom button to strip line breaks from selected text
+  - Autosave functionality with debouncing
+- Show/hide all long notes toggle for quick overview

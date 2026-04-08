@@ -225,7 +225,14 @@ import { useOutlineStore } from 'stores/outline-store'
 import { storeToRefs } from 'pinia'
 
 const store = useOutlineStore()
-const { projects, currentProjectId, fontSize, indentSize, defaultListType, showIndentGuides } = storeToRefs(store)
+const {
+  projects,
+  currentProjectId,
+  fontSize,
+  indentSize,
+  defaultListType,
+  showIndentGuides,
+} = storeToRefs(store)
 
 const drawerOpen = ref(true)
 const showNewProjectDialog = ref(false)

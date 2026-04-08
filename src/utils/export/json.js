@@ -50,7 +50,13 @@ export function exportAsJSON(projects, selectedProjectId = null) {
       fontSize: project.settings?.fontSize || 14,
       indentSize: project.settings?.indentSize || 32,
       defaultListType: project.settings?.defaultListType || 'ordered',
-      showIndentGuides: project.settings?.showIndentGuides !== false
+      showIndentGuides: project.settings?.showIndentGuides !== false,
+      tibetanFontFamily: project.settings?.tibetanFontFamily || 'Microsoft Himalaya',
+      tibetanFontSize: project.settings?.tibetanFontSize || 20,
+      tibetanFontColor: project.settings?.tibetanFontColor || '#000000',
+      nonTibetanFontFamily: project.settings?.nonTibetanFontFamily || 'Aptos, sans-serif',
+      nonTibetanFontSize: project.settings?.nonTibetanFontSize || 16,
+      nonTibetanFontColor: project.settings?.nonTibetanFontColor || '#000000',
     },
     items: processItems(project.lists || [])
   }))
@@ -145,6 +151,26 @@ export function validateImportData(data) {
       if (s.indentSize && (typeof s.indentSize !== 'number' || s.indentSize < 5 || s.indentSize > 100)) {
         errors.push(prefix + 'Invalid indentSize setting')
       }
+      if (
+        s.tibetanFontSize &&
+        (typeof s.tibetanFontSize !== 'number' || s.tibetanFontSize < 8 || s.tibetanFontSize > 100)
+      ) {
+        errors.push(prefix + 'Invalid tibetanFontSize setting')
+      }
+      if (
+        s.nonTibetanFontSize &&
+        (typeof s.nonTibetanFontSize !== 'number' ||
+          s.nonTibetanFontSize < 8 ||
+          s.nonTibetanFontSize > 100)
+      ) {
+        errors.push(prefix + 'Invalid nonTibetanFontSize setting')
+      }
+      if (s.tibetanFontColor && typeof s.tibetanFontColor !== 'string') {
+        errors.push(prefix + 'Invalid tibetanFontColor setting')
+      }
+      if (s.nonTibetanFontColor && typeof s.nonTibetanFontColor !== 'string') {
+        errors.push(prefix + 'Invalid nonTibetanFontColor setting')
+      }
     }
   })
 
@@ -193,6 +219,12 @@ export function importFromJSON(jsonData) {
         indentSize: 32,
         defaultListType: 'ordered',
         showIndentGuides: true,
+        tibetanFontFamily: 'Microsoft Himalaya',
+        tibetanFontSize: 20,
+        tibetanFontColor: '#000000',
+        nonTibetanFontFamily: 'Aptos, sans-serif',
+        nonTibetanFontSize: 16,
+        nonTibetanFontColor: '#000000',
         ...project.settings
       },
       lists: project.items || []

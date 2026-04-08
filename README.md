@@ -16,12 +16,16 @@ A powerful hierarchical outline and note-taking application built with Vue 3 and
 
 ### Advanced Features
 
+- **Version Control**: Comprehensive versioning system with automatic and manual saves
 - **Export/Import**: Export to Markdown, Microsoft Word (DOCX), and JSON formats; Import JSON backups
-- **Backup & Restore**: Complete project backup with settings preservation
+- **Backup & Restore**: Complete project backup with settings preservation and version history
 - **Bulk Operations**: Collapse or expand all items and notes with one click
-- **Per-Project Settings**: Customizable font size, indentation, and display options
+- **Per-Project Settings**: Customizable font size, indentation, display options, and script-specific typography
+- **Program-Wide Defaults**: Set default values for all new projects
+- **Dual-Script Typography**: Configure Tibetan and non-Tibetan font family, size, and color separately
 - **Context-Aware Shortcuts**: Intelligent keyboard handling that adapts to editing context
 - **Rich Text Editing**: Full-featured editor with lists, quotes, code blocks, links, and images
+- **GitHub Pages Deployment**: Deploy directly to GitHub Pages with automated CI/CD
 
 ## Installation & Setup
 
@@ -58,6 +62,7 @@ A powerful hierarchical outline and note-taking application built with Vue 3 and
 
 - `npm run dev` - Start development server with hot reload
 - `npm run build` - Build for production
+- `npm run build:gh-pages` - Build for GitHub Pages deployment
 - `npm run lint` - Run ESLint code checking
 - `npm run format` - Format code with Prettier
 
@@ -98,6 +103,9 @@ A powerful hierarchical outline and note-taking application built with Vue 3 and
 
 - `Ctrl/Cmd + Z` - Undo (within editor)
 - `Ctrl/Cmd + Y` - Redo (within editor)
+- `Tab` - Increase indentation
+- `Shift + Tab` - Decrease indentation
+- Strip Line Breaks button - Remove all line breaks from selected text
 - Rich text formatting toolbar available
 
 ### Export Options
@@ -126,17 +134,28 @@ A powerful hierarchical outline and note-taking application built with Vue 3 and
 
 ### Customization
 
+#### Settings Dialog
+
+- **Program Settings Tab**: Configure defaults for new projects
+  - Auto-versioning options (on start, on close, at intervals)
+  - Default font and indent sizes
+  - Default list type preference
+  - Default Tibetan and non-Tibetan typography (family, size, color)
+
 #### Project Settings (Per-Project)
 
-- **Font Size**: 12-40px range with slider control
+- **Font Size**: 12-40px range with real-time preview
 - **Indent Size**: 5-50px for visual hierarchy
 - **Default List Type**: Choose between numbered or bulleted
 - **Indent Guides**: Visual lines to show nesting levels
+- **Script Typography**: Separate Tibetan and non-Tibetan family/size/color settings for display
+- **Version History**: View, restore, export, and manage project versions
 
 #### Display Options
 
 - Collapsible outline items for focused viewing
 - Collapsible long notes to reduce visual clutter
+- Show/Hide all long notes toggle
 - Bulk expand/collapse operations
 
 ## Technical Architecture
@@ -163,8 +182,15 @@ A powerful hierarchical outline and note-taking application built with Vue 3 and
 ### Storage
 
 - **Local Storage**: All data persists automatically in browser
+- **Version History**: Per-project version tracking with duplicate detection
 - **Migration System**: Seamless updates preserve existing data
 - **No Server Required**: Fully client-side application
+
+### Deployment
+
+- **GitHub Pages**: Automated deployment via GitHub Actions
+- **Custom Domain**: Configurable public path for deployment
+- **CI/CD Pipeline**: Automatic builds on push to main branch
 
 ## Development
 
@@ -175,7 +201,9 @@ src/
 ├── components/          # Vue components
 │   ├── OutlineEditor.vue    # Main editing interface
 │   ├── OutlineItem.vue      # Recursive outline item
-│   └── ProjectsSidebar.vue  # Project management sidebar
+│   ├── ProjectsSidebar.vue  # Project management sidebar
+│   ├── SettingsDialog.vue   # Settings and version management
+│   └── MainLayout.vue       # Application layout
 ├── stores/              # Pinia stores
 │   └── outline-store.js     # Main application state
 ├── utils/               # Utility modules

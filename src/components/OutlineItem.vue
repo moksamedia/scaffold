@@ -20,13 +20,17 @@
           <div class="item-prefix ordered" v-if="listType === 'ordered'">{{ index + 1 }}.</div>
           <div class="item-prefix unordered" v-else>•</div>
 
-          <div
-            v-if="!isEditing"
-            class="item-text-display"
-            :style="{ fontSize: fontSize + 'px' }"
-            @click="startEditing"
-          >
-            {{ item.text || 'Click to edit...' }}
+          <div v-if="!isEditing" class="item-text-display" @click="startEditing">
+            <template v-if="item.text">
+              <span
+                v-for="(run, runIndex) in splitScriptRuns(item.text)"
+                :key="`item-${item.id}-run-${runIndex}`"
+                :style="getRunStyle(run.type)"
+              >
+                {{ run.text }}
+              </span>
+            </template>
+            <span v-else class="placeholder-text">Click to edit...</span>
           </div>
           <q-input
             v-else
@@ -46,7 +50,13 @@
 
           <span v-for="note in item.shortNotes" :key="note.id" class="short-note">
             <span class="short-note-text" @click.stop="editShortNote(note)">
-              {{ note.text }}
+              <span
+                v-for="(run, runIndex) in splitScriptRuns(note.text)"
+                :key="`short-${note.id}-run-${runIndex}`"
+                :style="getRunStyle(run.type)"
+              >
+                {{ run.text }}
+              </span>
             </span>
             <q-btn
               round
@@ -145,14 +155,21 @@
               @click.stop="toggleLongNote(note.id)"
             />
             <span v-if="note.collapsed" class="long-note-preview">
-              {{ stripHtml(note.text) }}...
+              <span
+                v-for="(run, runIndex) in splitScriptRuns(stripHtml(note.text))"
+                :key="`preview-${note.id}-run-${runIndex}`"
+                :style="getRunStyle(run.type)"
+              >
+                {{ run.text }}
+              </span>
+              ...
             </span>
             <q-space />
             <q-btn round dense flat size="xs" icon="edit" @click.stop="editLongNote(note)" />
             <q-btn round dense flat size="xs" icon="close" @click.stop="deleteLongNote(note.id)" />
           </div>
           <div v-if="!note.collapsed" class="long-note-content">
-            <div v-html="formatText(note.text)"></div>
+            <div v-html="formatTextWithTypography(note.text)"></div>
           </div>
         </div>
       </div>
@@ -256,6 +273,7 @@
 import { ref, computed, watch } from 'vue'
 import { useOutlineStore } from 'stores/outline-store'
 import { storeToRefs } from 'pinia'
+import { splitScriptRuns } from 'src/utils/text/script-runs'
 
 const props = defineProps({
   item: {
@@ -277,7 +295,18 @@ const props = defineProps({
 })
 
 const store = useOutlineStore()
-const { fontSize, indentSize, showIndentGuides, currentlyEditingId } = storeToRefs(store)
+const {
+  fontSize,
+  indentSize,
+  showIndentGuides,
+  currentlyEditingId,
+  tibetanFontFamily,
+  tibetanFontSize,
+  tibetanFontColor,
+  nonTibetanFontFamily,
+  nonTibetanFontSize,
+  nonTibetanFontColor,
+} = storeToRefs(store)
 
 const showShortNoteDialog = ref(false)
 const showLongNoteDialog = ref(false)
@@ -489,6 +518,69 @@ function formatText(text) {
     .replace(/<\/u>/g, '</span>')
 }
 
+function getRunStyle(scriptType) {
+  if (scriptType === 'tibetan') {
+    return {
+      fontFamily: tibetanFontFamily.value || 'Microsoft Himalaya',
+      fontSize: `${tibetanFontSize.value || 20}px`,
+      color: tibetanFontColor.value || '#000000',
+    }
+  }
+
+  return {
+    fontFamily: nonTibetanFontFamily.value || 'Aptos, sans-serif',
+    fontSize: `${nonTibetanFontSize.value || 16}px`,
+    color: nonTibetanFontColor.value || '#000000',
+  }
+}
+
+function styleTextNode(node) {
+  const text = node.textContent || ''
+  if (!text.trim()) return
+
+  const runs = splitScriptRuns(text)
+  if (runs.length === 0) return
+
+  const fragment = document.createDocumentFragment()
+  runs.forEach((run) => {
+    const span = document.createElement('span')
+    const style = getRunStyle(run.type)
+    span.style.fontFamily = style.fontFamily
+    span.style.fontSize = style.fontSize
+    span.style.color = style.color
+    span.textContent = run.text
+    fragment.appendChild(span)
+  })
+
+  node.parentNode.replaceChild(fragment, node)
+}
+
+function applyTypographyToHtml(html) {
+  const container = document.createElement('div')
+  container.innerHTML = html
+
+  function walk(node) {
+    if (!node) return
+
+    const children = Array.from(node.childNodes)
+    children.forEach((child) => {
+      if (child.nodeType === Node.TEXT_NODE) {
+        styleTextNode(child)
+      } else if (child.nodeType === Node.ELEMENT_NODE) {
+        walk(child)
+      }
+    })
+  }
+
+  walk(container)
+  return container.innerHTML
+}
+
+function formatTextWithTypography(text) {
+  const formatted = formatText(text)
+  return applyTypographyToHtml(formatted)
+}
+
 function stripHtml(text) {
   const tmp = document.createElement('div')
   tmp.innerHTML = text
@@ -632,8 +724,7 @@ function handleLongNotePaste(event) {
   background-color: rgba(0, 0, 0, 0.02);
 }
 
-.item-text-display:empty::before {
-  content: 'Click to edit...';
+.placeholder-text {
   color: #999;
   font-style: italic;
 }

@@ -77,6 +77,65 @@
                 </div>
               </div>
             </div>
+
+            <q-separator class="q-my-md" />
+
+            <div class="q-mb-lg">
+              <div class="text-subtitle1 q-mb-sm">Default Typography for New Projects</div>
+              <div class="text-caption text-grey-8 q-mb-xs">Tibetan</div>
+              <div class="typography-row q-mb-sm">
+                <q-input
+                  v-model="programSettings.defaultTibetanFontFamily"
+                  label="Font Family"
+                  outlined
+                  dense
+                  class="family-field"
+                />
+                <input
+                  v-model="programSettings.defaultTibetanFontColor"
+                  type="color"
+                  class="small-color-input"
+                  aria-label="Tibetan text color"
+                />
+                <q-select
+                  v-model="programSettings.defaultTibetanFontSize"
+                  :options="fontSizeOptions"
+                  label="Size"
+                  outlined
+                  dense
+                  emit-value
+                  map-options
+                  class="size-field"
+                />
+              </div>
+
+              <div class="text-caption text-grey-8 q-mb-xs">Non-Tibetan</div>
+              <div class="typography-row">
+                <q-input
+                  v-model="programSettings.defaultNonTibetanFontFamily"
+                  label="Font Family"
+                  outlined
+                  dense
+                  class="family-field"
+                />
+                <input
+                  v-model="programSettings.defaultNonTibetanFontColor"
+                  type="color"
+                  class="small-color-input"
+                  aria-label="Non-Tibetan text color"
+                />
+                <q-select
+                  v-model="programSettings.defaultNonTibetanFontSize"
+                  :options="fontSizeOptions"
+                  label="Size"
+                  outlined
+                  dense
+                  emit-value
+                  map-options
+                  class="size-field"
+                />
+              </div>
+            </div>
           </q-tab-panel>
 
           <!-- Project Settings Tab -->
@@ -135,6 +194,71 @@
                 label="Bulleted (•)"
                 @update:model-value="store.setDefaultListType"
               />
+            </div>
+
+            <q-separator class="q-my-md" />
+
+            <div class="q-mb-lg">
+              <div class="text-subtitle1 q-mb-sm">Project Typography</div>
+              <div class="text-caption text-grey-8 q-mb-xs">Tibetan</div>
+              <div class="typography-row q-mb-sm">
+                <q-input
+                  v-model="tibetanFontFamily"
+                  label="Font Family"
+                  outlined
+                  dense
+                  class="family-field"
+                  @update:model-value="store.setTibetanFontFamily"
+                />
+                <input
+                  v-model="tibetanFontColor"
+                  type="color"
+                  class="small-color-input"
+                  aria-label="Project Tibetan text color"
+                  @input="store.setTibetanFontColor(tibetanFontColor)"
+                />
+                <q-select
+                  v-model="tibetanFontSize"
+                  :options="fontSizeOptions"
+                  label="Size"
+                  outlined
+                  dense
+                  emit-value
+                  map-options
+                  class="size-field"
+                  @update:model-value="store.setTibetanFontSize"
+                />
+              </div>
+
+              <div class="text-caption text-grey-8 q-mb-xs">Non-Tibetan</div>
+              <div class="typography-row">
+                <q-input
+                  v-model="nonTibetanFontFamily"
+                  label="Font Family"
+                  outlined
+                  dense
+                  class="family-field"
+                  @update:model-value="store.setNonTibetanFontFamily"
+                />
+                <input
+                  v-model="nonTibetanFontColor"
+                  type="color"
+                  class="small-color-input"
+                  aria-label="Project non-Tibetan text color"
+                  @input="store.setNonTibetanFontColor(nonTibetanFontColor)"
+                />
+                <q-select
+                  v-model="nonTibetanFontSize"
+                  :options="fontSizeOptions"
+                  label="Size"
+                  outlined
+                  dense
+                  emit-value
+                  map-options
+                  class="size-field"
+                  @update:model-value="store.setNonTibetanFontSize"
+                />
+              </div>
             </div>
 
             <q-separator class="q-my-md" />
@@ -256,7 +380,19 @@ const emit = defineEmits(['update:modelValue'])
 
 const $q = useQuasar()
 const store = useOutlineStore()
-const { currentProject, fontSize, indentSize, showIndentGuides, defaultListType } =
+const {
+  currentProject,
+  fontSize,
+  indentSize,
+  showIndentGuides,
+  defaultListType,
+  tibetanFontFamily,
+  tibetanFontSize,
+  tibetanFontColor,
+  nonTibetanFontFamily,
+  nonTibetanFontSize,
+  nonTibetanFontColor,
+} =
   storeToRefs(store)
 
 const showDialog = computed({
@@ -274,6 +410,12 @@ const programSettings = ref({
   versioningInterval: 10,
   defaultFontSize: 14,
   defaultIndentSize: 32,
+  defaultTibetanFontFamily: 'Microsoft Himalaya',
+  defaultTibetanFontSize: 20,
+  defaultTibetanFontColor: '#000000',
+  defaultNonTibetanFontFamily: 'Aptos, sans-serif',
+  defaultNonTibetanFontSize: 16,
+  defaultNonTibetanFontColor: '#000000',
 })
 
 // Project settings are now accessed directly through store refs
@@ -287,6 +429,11 @@ const autoVersioningOptions = [
   { label: 'At regular intervals', value: 'interval' },
 ]
 
+const fontSizeOptions = Array.from({ length: 37 }, (_, i) => {
+  const size = i + 12
+  return { label: `${size}px`, value: size }
+})
+
 onMounted(() => {
   loadProgramSettings()
   loadVersions()
@@ -299,7 +446,10 @@ watch(currentProject, () => {
 function loadProgramSettings() {
   const saved = localStorage.getItem('scaffold-program-settings')
   if (saved) {
-    programSettings.value = JSON.parse(saved)
+    programSettings.value = {
+      ...programSettings.value,
+      ...JSON.parse(saved),
+    }
   }
 }
 
@@ -445,3 +595,31 @@ function closeDialog() {
   showDialog.value = false
 }
 </script>
+
+<style scoped>
+.typography-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.family-field {
+  width: 200px;
+  max-width: 200px;
+}
+
+.size-field {
+  width: 120px;
+}
+
+.small-color-input {
+  width: 34px;
+  min-width: 34px;
+  height: 34px;
+  border: 1px solid #d6d6d6;
+  border-radius: 6px;
+  padding: 2px;
+  background: #fff;
+  cursor: pointer;
+}
+</style>
