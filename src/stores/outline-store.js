@@ -382,6 +382,53 @@ export const useOutlineStore = defineStore('outline', () => {
     }
   }
 
+  /** Where to insert a sibling immediately after `itemId` (same parent array + index). */
+  function findSiblingInsertContext(itemId) {
+    if (!currentProject.value) return null
+
+    function walk(items, parentId = null) {
+      const idx = items.findIndex((x) => x.id === itemId)
+      if (idx !== -1) {
+        return { parentArray: items, index: idx, parentId }
+      }
+      for (const item of items) {
+        if (item.children?.length) {
+          const found = walk(item.children, item.id)
+          if (found) return found
+        }
+      }
+      return null
+    }
+
+    return walk(currentProject.value.lists, null)
+  }
+
+  /**
+   * One undo step: set current item text, then append new sibling items after it (one per line).
+   * Used when pasting multi-line text into a list item.
+   */
+  function applyMultiLinePasteAsSiblings(currentItemId, newTextForCurrent, additionalLineTexts) {
+    if (!currentProject.value) return
+
+    const currentItem = findItemById(currentProject.value.lists, currentItemId)
+    if (!currentItem || isDividerItem(currentItem)) return
+
+    saveState('Paste as multiple items')
+    currentItem.text = newTextForCurrent
+
+    let refId = currentItemId
+    for (const line of additionalLineTexts) {
+      const ctx = findSiblingInsertContext(refId)
+      if (!ctx) break
+      const newItem = createListItem(line, ctx.parentId)
+      ctx.parentArray.splice(ctx.index + 1, 0, newItem)
+      refId = newItem.id
+    }
+
+    currentProject.value.updatedAt = new Date().toISOString()
+    saveToLocalStorage()
+  }
+
   function deleteListItem(itemId) {
     if (!currentProject.value) return
 
@@ -1619,6 +1666,7 @@ export const useOutlineStore = defineStore('outline', () => {
     addRootDivider,
     updateListItem,
     addChildItem,
+    applyMultiLinePasteAsSiblings,
     deleteListItem,
     addShortNote,
     addLongNote,

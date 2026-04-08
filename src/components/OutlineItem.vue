@@ -66,6 +66,7 @@
             :style="{ fontSize: scaledUiFontSize + 'px' }"
             autofocus
             @update:model-value="updateText"
+            @paste="onItemTextPaste"
             @keydown.enter.prevent="handleEnter"
             @keydown.tab.prevent="handleTab"
             @keydown.shift.tab.prevent="handleShiftTab"
@@ -326,6 +327,7 @@
 
 <script setup>
 import { ref, computed, watch, onMounted } from 'vue'
+import { useQuasar } from 'quasar'
 import { useOutlineStore, DEFAULT_NEW_LIST_ITEM_TEXT } from 'stores/outline-store'
 import { storeToRefs } from 'pinia'
 import { splitScriptRuns } from 'src/utils/text/script-runs'
@@ -350,6 +352,7 @@ const props = defineProps({
 })
 
 const store = useOutlineStore()
+const $q = useQuasar()
 const {
   currentProject,
   fontSize,
@@ -435,6 +438,55 @@ function toggleChildrenListType() {
 function updateText(value) {
   if (isDivider.value) return
   store.updateListItem(props.item.id, { text: value })
+}
+
+/** If paste contains line breaks, offer to split into sibling items (first line stays in this item). */
+function onItemTextPaste(event) {
+  if (isDivider.value) return
+  const pasted = event.clipboardData?.getData('text/plain')
+  if (pasted == null || !/\r|\n/.test(pasted)) return
+
+  event.preventDefault()
+  const lines = pasted.split(/\r\n|\r|\n/)
+  if (lines.length < 2) return
+
+  let inputEl = event.target
+  if (inputEl && inputEl.tagName !== 'INPUT' && inputEl.tagName !== 'TEXTAREA') {
+    inputEl = inputEl.closest?.('.q-field')?.querySelector('input, textarea') ?? null
+  }
+  const fullText = props.item.text ?? ''
+  let start = 0
+  let end = fullText.length
+  if (inputEl && typeof inputEl.selectionStart === 'number') {
+    start = inputEl.selectionStart
+    end = inputEl.selectionEnd ?? start
+  }
+  const before = fullText.slice(0, start)
+  const after = fullText.slice(end)
+  const newItemCount = lines.length - 1
+
+  $q.dialog({
+    title: 'Multiple lines pasted',
+    message: `Your paste includes line breaks. Create ${newItemCount} new sibling item(s) below this one? The first line stays in this item; each remaining line becomes its own item.`,
+    cancel: {
+      label: 'No, keep as one line',
+      color: 'grey',
+      flat: true,
+    },
+    ok: {
+      label: `Create ${newItemCount} item(s)`,
+      color: 'primary',
+    },
+    persistent: true,
+  })
+    .onOk(() => {
+      const newCurrent = before + lines[0] + after
+      store.applyMultiLinePasteAsSiblings(props.item.id, newCurrent, lines.slice(1))
+    })
+    .onCancel(() => {
+      const singleLineInsert = pasted.replace(/\r\n|\r|\n/g, ' ').replace(/\s+/g, ' ')
+      store.updateListItem(props.item.id, { text: before + singleLineInsert + after })
+    })
 }
 
 function startEditing() {
