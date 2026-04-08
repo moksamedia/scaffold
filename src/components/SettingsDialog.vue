@@ -84,19 +84,33 @@
               <div class="text-subtitle1 q-mb-sm">Default Typography for New Projects</div>
               <div class="text-caption text-grey-8 q-mb-xs">Tibetan</div>
               <div class="typography-row q-mb-sm">
-                <q-input
+                <q-select
                   v-model="programSettings.defaultTibetanFontFamily"
+                  :options="fontFamilyOptions"
                   label="Font Family"
                   outlined
                   dense
+                  emit-value
+                  map-options
                   class="family-field"
                 />
-                <input
-                  v-model="programSettings.defaultTibetanFontColor"
-                  type="color"
-                  class="small-color-input"
+                <q-btn
+                  class="color-swatch"
+                  :style="{ backgroundColor: programSettings.defaultTibetanFontColor }"
                   aria-label="Tibetan text color"
-                />
+                >
+                  <q-popup-proxy cover transition-show="scale" transition-hide="scale">
+                    <q-card>
+                      <q-card-section class="q-pa-sm">
+                        <q-color
+                          v-model="programSettings.defaultTibetanFontColor"
+                          no-header
+                          no-footer
+                        />
+                      </q-card-section>
+                    </q-card>
+                  </q-popup-proxy>
+                </q-btn>
                 <q-select
                   v-model="programSettings.defaultTibetanFontSize"
                   :options="fontSizeOptions"
@@ -111,19 +125,33 @@
 
               <div class="text-caption text-grey-8 q-mb-xs">Non-Tibetan</div>
               <div class="typography-row">
-                <q-input
+                <q-select
                   v-model="programSettings.defaultNonTibetanFontFamily"
+                  :options="fontFamilyOptions"
                   label="Font Family"
                   outlined
                   dense
+                  emit-value
+                  map-options
                   class="family-field"
                 />
-                <input
-                  v-model="programSettings.defaultNonTibetanFontColor"
-                  type="color"
-                  class="small-color-input"
+                <q-btn
+                  class="color-swatch"
+                  :style="{ backgroundColor: programSettings.defaultNonTibetanFontColor }"
                   aria-label="Non-Tibetan text color"
-                />
+                >
+                  <q-popup-proxy cover transition-show="scale" transition-hide="scale">
+                    <q-card>
+                      <q-card-section class="q-pa-sm">
+                        <q-color
+                          v-model="programSettings.defaultNonTibetanFontColor"
+                          no-header
+                          no-footer
+                        />
+                      </q-card-section>
+                    </q-card>
+                  </q-popup-proxy>
+                </q-btn>
                 <q-select
                   v-model="programSettings.defaultNonTibetanFontSize"
                   :options="fontSizeOptions"
@@ -202,21 +230,35 @@
               <div class="text-subtitle1 q-mb-sm">Project Typography</div>
               <div class="text-caption text-grey-8 q-mb-xs">Tibetan</div>
               <div class="typography-row q-mb-sm">
-                <q-input
+                <q-select
                   v-model="tibetanFontFamily"
+                  :options="fontFamilyOptions"
                   label="Font Family"
                   outlined
                   dense
+                  emit-value
+                  map-options
                   class="family-field"
                   @update:model-value="store.setTibetanFontFamily"
                 />
-                <input
-                  v-model="tibetanFontColor"
-                  type="color"
-                  class="small-color-input"
+                <q-btn
+                  class="color-swatch"
+                  :style="{ backgroundColor: tibetanFontColor }"
                   aria-label="Project Tibetan text color"
-                  @input="store.setTibetanFontColor(tibetanFontColor)"
-                />
+                >
+                  <q-popup-proxy cover transition-show="scale" transition-hide="scale">
+                    <q-card>
+                      <q-card-section class="q-pa-sm">
+                        <q-color
+                          :model-value="tibetanFontColor"
+                          no-header
+                          no-footer
+                          @update:model-value="store.setTibetanFontColor"
+                        />
+                      </q-card-section>
+                    </q-card>
+                  </q-popup-proxy>
+                </q-btn>
                 <q-select
                   v-model="tibetanFontSize"
                   :options="fontSizeOptions"
@@ -232,21 +274,35 @@
 
               <div class="text-caption text-grey-8 q-mb-xs">Non-Tibetan</div>
               <div class="typography-row">
-                <q-input
+                <q-select
                   v-model="nonTibetanFontFamily"
+                  :options="fontFamilyOptions"
                   label="Font Family"
                   outlined
                   dense
+                  emit-value
+                  map-options
                   class="family-field"
                   @update:model-value="store.setNonTibetanFontFamily"
                 />
-                <input
-                  v-model="nonTibetanFontColor"
-                  type="color"
-                  class="small-color-input"
+                <q-btn
+                  class="color-swatch"
+                  :style="{ backgroundColor: nonTibetanFontColor }"
                   aria-label="Project non-Tibetan text color"
-                  @input="store.setNonTibetanFontColor(nonTibetanFontColor)"
-                />
+                >
+                  <q-popup-proxy cover transition-show="scale" transition-hide="scale">
+                    <q-card>
+                      <q-card-section class="q-pa-sm">
+                        <q-color
+                          :model-value="nonTibetanFontColor"
+                          no-header
+                          no-footer
+                          @update:model-value="store.setNonTibetanFontColor"
+                        />
+                      </q-card-section>
+                    </q-card>
+                  </q-popup-proxy>
+                </q-btn>
                 <q-select
                   v-model="nonTibetanFontSize"
                   :options="fontSizeOptions"
@@ -427,6 +483,15 @@ const autoVersioningOptions = [
   { label: 'On program start', value: 'start' },
   { label: 'On program close', value: 'close' },
   { label: 'At regular intervals', value: 'interval' },
+]
+
+const fontFamilyOptions = [
+  { label: 'Microsoft Himalaya', value: 'Microsoft Himalaya' },
+  { label: 'Noto Sans Tibetan', value: 'Noto Sans Tibetan' },
+  { label: 'Jomolhari', value: 'Jomolhari' },
+  { label: 'Aptos, sans-serif', value: 'Aptos, sans-serif' },
+  { label: 'Arial, sans-serif', value: 'Arial, sans-serif' },
+  { label: 'Times New Roman, serif', value: 'Times New Roman, serif' },
 ]
 
 const fontSizeOptions = Array.from({ length: 37 }, (_, i) => {
@@ -612,14 +677,12 @@ function closeDialog() {
   width: 120px;
 }
 
-.small-color-input {
+.color-swatch {
   width: 34px;
   min-width: 34px;
   height: 34px;
-  border: 1px solid #d6d6d6;
+  border: 1px solid #bdbdbd;
   border-radius: 6px;
-  padding: 2px;
-  background: #fff;
-  cursor: pointer;
+  padding: 0;
 }
 </style>
