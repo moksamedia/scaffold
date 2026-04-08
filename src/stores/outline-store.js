@@ -14,6 +14,7 @@ export const useOutlineStore = defineStore('outline', () => {
   const projects = ref([])
   const currentProjectId = ref(null)
   const fontSize = ref(14)
+  const fontScale = ref(100)
   const indentSize = ref(32)
   const defaultListType = ref('ordered')
   const showIndentGuides = ref(true)
@@ -119,7 +120,7 @@ export const useOutlineStore = defineStore('outline', () => {
       lists: [],
       rootListType: programSettings.defaultListType || defaultListType.value,
       settings: {
-        fontSize: programSettings.defaultFontSize || fontSize.value,
+        fontSize: programSettings.defaultNonTibetanFontSize || nonTibetanFontSize.value,
         indentSize: programSettings.defaultIndentSize || indentSize.value,
         defaultListType: programSettings.defaultListType || defaultListType.value,
         showIndentGuides: showIndentGuides.value,
@@ -165,7 +166,7 @@ export const useOutlineStore = defineStore('outline', () => {
     // Restore project-specific settings
     const project = projects.value.find((p) => p.id === projectId)
     if (project && project.settings) {
-      fontSize.value = project.settings.fontSize
+      fontSize.value = project.settings.nonTibetanFontSize || project.settings.fontSize || 16
       indentSize.value = project.settings.indentSize
       defaultListType.value = project.settings.defaultListType
       showIndentGuides.value = project.settings.showIndentGuides
@@ -687,14 +688,12 @@ export const useOutlineStore = defineStore('outline', () => {
   }
 
   function setFontSize(size) {
-    fontSize.value = size
-    if (currentProject.value) {
-      if (!currentProject.value.settings) {
-        currentProject.value.settings = {}
-      }
-      currentProject.value.settings.fontSize = size
-      currentProject.value.updatedAt = new Date().toISOString()
-    }
+    // Legacy alias: keep fontSize derived from non-Tibetan text size.
+    setNonTibetanFontSize(size)
+  }
+
+  function setFontScale(scale) {
+    fontScale.value = scale
     saveToLocalStorage()
   }
 
@@ -776,9 +775,11 @@ export const useOutlineStore = defineStore('outline', () => {
 
   function setNonTibetanFontSize(value) {
     nonTibetanFontSize.value = value
+    fontSize.value = value
     if (currentProject.value) {
       if (!currentProject.value.settings) currentProject.value.settings = {}
       currentProject.value.settings.nonTibetanFontSize = value
+      currentProject.value.settings.fontSize = value
       currentProject.value.updatedAt = new Date().toISOString()
     }
     saveToLocalStorage()
@@ -798,6 +799,7 @@ export const useOutlineStore = defineStore('outline', () => {
     localStorage.setItem('outline-projects', JSON.stringify(projects.value))
     localStorage.setItem('outline-current-project', currentProjectId.value || '')
     localStorage.setItem('outline-font-size', fontSize.value.toString())
+    localStorage.setItem('outline-font-scale', fontScale.value.toString())
     localStorage.setItem('outline-indent-size', indentSize.value.toString())
     localStorage.setItem('outline-default-list-type', defaultListType.value)
     localStorage.setItem('outline-show-indent-guides', showIndentGuides.value.toString())
@@ -1057,6 +1059,7 @@ export const useOutlineStore = defineStore('outline', () => {
     const savedProjects = localStorage.getItem('outline-projects')
     const savedCurrentId = localStorage.getItem('outline-current-project')
     const savedFontSize = localStorage.getItem('outline-font-size')
+    const savedFontScale = localStorage.getItem('outline-font-scale')
     const savedIndentSize = localStorage.getItem('outline-indent-size')
     const savedDefaultListType = localStorage.getItem('outline-default-list-type')
     const savedShowIndentGuides = localStorage.getItem('outline-show-indent-guides')
@@ -1069,6 +1072,9 @@ export const useOutlineStore = defineStore('outline', () => {
 
     if (savedFontSize) {
       fontSize.value = parseInt(savedFontSize, 10)
+    }
+    if (savedFontScale) {
+      fontScale.value = parseInt(savedFontScale, 10)
     }
 
     if (savedIndentSize) {
@@ -1097,6 +1103,7 @@ export const useOutlineStore = defineStore('outline', () => {
     }
     if (savedNonTibetanFontSize) {
       nonTibetanFontSize.value = parseInt(savedNonTibetanFontSize, 10)
+      fontSize.value = nonTibetanFontSize.value
     }
     if (savedNonTibetanFontColor) {
       nonTibetanFontColor.value = savedNonTibetanFontColor
@@ -1126,6 +1133,8 @@ export const useOutlineStore = defineStore('outline', () => {
               nonTibetanFontColor: nonTibetanFontColor.value,
             }
           } else {
+            project.settings.fontSize =
+              project.settings.nonTibetanFontSize || project.settings.fontSize || fontSize.value
             project.settings.tibetanFontFamily =
               project.settings.tibetanFontFamily || tibetanFontFamily.value
             project.settings.tibetanFontSize = project.settings.tibetanFontSize || tibetanFontSize.value
@@ -1164,6 +1173,10 @@ export const useOutlineStore = defineStore('outline', () => {
 
     if (savedCurrentId) {
       currentProjectId.value = savedCurrentId
+      const selectedProject = projects.value.find((project) => project.id === savedCurrentId)
+      if (selectedProject?.settings?.nonTibetanFontSize) {
+        fontSize.value = selectedProject.settings.nonTibetanFontSize
+      }
     }
 
     if (projects.value.length === 0) {
@@ -1331,6 +1344,7 @@ export const useOutlineStore = defineStore('outline', () => {
     currentProjectId,
     currentProject,
     fontSize,
+    fontScale,
     indentSize,
     defaultListType,
     showIndentGuides,
@@ -1377,6 +1391,7 @@ export const useOutlineStore = defineStore('outline', () => {
     allLongNotesVisible,
     showHideAllLongNotes,
     setFontSize,
+    setFontScale,
     setIndentSize,
     setDefaultListType,
     setShowIndentGuides,

@@ -20,7 +20,7 @@
         </div>
 
         <div class="q-mb-md">
-          <div class="text-caption text-grey-8 q-mb-xs">Font Size</div>
+          <div class="text-caption text-grey-8 q-mb-xs">Font Scale</div>
           <div class="row items-center q-gutter-xs">
             <q-btn
               round
@@ -28,11 +28,11 @@
               flat
               icon="remove"
               size="sm"
-              :disable="fontSize <= 10"
-              @click="decreaseFontSize"
+              :disable="fontScale <= 50"
+              @click="decreaseFontScale"
             />
             <div class="text-body2" style="min-width: 40px; text-align: center">
-              {{ fontSize }}px
+              {{ fontScale }}%
             </div>
             <q-btn
               round
@@ -40,17 +40,17 @@
               flat
               icon="add"
               size="sm"
-              :disable="fontSize >= 24"
-              @click="increaseFontSize"
+              :disable="fontScale >= 200"
+              @click="increaseFontScale"
             />
             <q-slider
-              v-model="fontSize"
-              :min="12"
-              :max="40"
+              v-model="fontScale"
+              :min="50"
+              :max="200"
               :step="1"
               color="primary"
               class="col q-ml-sm"
-              @update:model-value="updateFontSize"
+              @update:model-value="updateFontScale"
             />
           </div>
         </div>
@@ -228,7 +228,7 @@ const store = useOutlineStore()
 const {
   projects,
   currentProjectId,
-  fontSize,
+  fontScale,
   indentSize,
   defaultListType,
   showIndentGuides,
@@ -312,20 +312,20 @@ function formatDate(dateString) {
   }
 }
 
-function increaseFontSize() {
-  if (fontSize.value < 24) {
-    store.setFontSize(fontSize.value + 1)
+function increaseFontScale() {
+  if (fontScale.value < 200) {
+    store.setFontScale(fontScale.value + 1)
   }
 }
 
-function decreaseFontSize() {
-  if (fontSize.value > 10) {
-    store.setFontSize(fontSize.value - 1)
+function decreaseFontScale() {
+  if (fontScale.value > 50) {
+    store.setFontScale(fontScale.value - 1)
   }
 }
 
-function updateFontSize(value) {
-  store.setFontSize(value)
+function updateFontScale(value) {
+  store.setFontScale(value)
 }
 
 function increaseIndentSize() {

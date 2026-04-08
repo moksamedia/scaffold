@@ -175,14 +175,14 @@
               <div class="row q-col-gutter-md">
                 <div class="col-12 col-md-6">
                   <q-slider
-                    v-model="fontSize"
-                    :min="12"
-                    :max="40"
+                    v-model="fontScale"
+                    :min="50"
+                    :max="200"
                     :step="1"
                     label
                     label-always
-                    :label-value="'Font Size: ' + fontSize + 'px'"
-                    @update:model-value="store.setFontSize"
+                    :label-value="'Font Scale: ' + fontScale + '%'"
+                    @update:model-value="store.setFontScale"
                   />
                 </div>
                 <div class="col-12 col-md-6">
@@ -438,7 +438,7 @@ const $q = useQuasar()
 const store = useOutlineStore()
 const {
   currentProject,
-  fontSize,
+  fontScale,
   indentSize,
   showIndentGuides,
   defaultListType,
@@ -456,7 +456,8 @@ const showDialog = computed({
   set: (val) => emit('update:modelValue', val),
 })
 
-const activeTab = ref('program')
+const SETTINGS_ACTIVE_TAB_KEY = 'scaffold-settings-active-tab'
+const activeTab = ref('project')
 const showSaveVersionDialog = ref(false)
 const versionName = ref('')
 
@@ -500,6 +501,7 @@ const fontSizeOptions = Array.from({ length: 37 }, (_, i) => {
 })
 
 onMounted(() => {
+  loadActiveTab()
   loadProgramSettings()
   loadVersions()
 })
@@ -515,6 +517,15 @@ function loadProgramSettings() {
       ...programSettings.value,
       ...JSON.parse(saved),
     }
+  }
+}
+
+function loadActiveTab() {
+  const savedTab = localStorage.getItem(SETTINGS_ACTIVE_TAB_KEY)
+  if (savedTab === 'program' || savedTab === 'project') {
+    activeTab.value = savedTab
+  } else {
+    activeTab.value = 'project'
   }
 }
 
@@ -657,8 +668,13 @@ function formatDate(timestamp) {
 function closeDialog() {
   // Save program settings
   localStorage.setItem('scaffold-program-settings', JSON.stringify(programSettings.value))
+  localStorage.setItem(SETTINGS_ACTIVE_TAB_KEY, activeTab.value)
   showDialog.value = false
 }
+
+watch(activeTab, (tab) => {
+  localStorage.setItem(SETTINGS_ACTIVE_TAB_KEY, tab)
+})
 </script>
 
 <style scoped>

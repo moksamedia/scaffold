@@ -1,6 +1,6 @@
 <template>
   <div class="outline-item" :class="{ 'is-root': isRoot }" :data-item-id="item.id">
-    <div class="item-content" :style="{ fontSize: fontSize + 'px' }">
+    <div class="item-content" :style="{ fontSize: scaledUiFontSize + 'px' }">
       <div class="item-main">
         <div class="item-controls-left">
           <q-btn
@@ -38,7 +38,7 @@
             dense
             borderless
             class="item-text-input"
-            :style="{ fontSize: fontSize + 'px' }"
+            :style="{ fontSize: scaledUiFontSize + 'px' }"
             autofocus
             @update:model-value="updateText"
             @keydown.enter.prevent="handleEnter"
@@ -142,7 +142,7 @@
       <div
         v-if="item.longNotes && item.longNotes.length > 0"
         class="long-notes"
-        :style="{ marginLeft: 64 - 30 + fontSize + 'px' /* a hack to align with oultline text */ }"
+        :style="{ marginLeft: 64 - 30 + scaledUiFontSize + 'px' /* a hack to align with oultline text */ }"
       >
         <div v-for="note in item.longNotes" :key="note.id" v-show="!note.hidden" class="long-note">
           <div class="long-note-header" @click="toggleLongNote(note.id)">
@@ -221,56 +221,80 @@
 
     <q-dialog v-model="showLongNoteDialog" maximized>
       <q-card>
-        <q-card-section class="row items-center">
-          <div class="text-h6">{{ editingNote ? 'Edit' : 'Add' }} Long Note</div>
-          <q-space />
-          <div v-if="isAutosaving" class="text-caption text-primary q-mr-sm">
-            <q-spinner-dots size="16px" class="q-mr-xs" />
-            Autosaving...
-          </div>
-          <div v-else-if="lastAutosaved" class="text-caption text-grey q-mr-sm">
-            <q-icon name="check_circle" size="16px" class="q-mr-xs" />
-            Saved
-          </div>
-          <q-btn icon="close" flat round dense @click="closeLongNoteDialog" />
-        </q-card-section>
+        <div class="long-note-dialog-wrap">
+          <q-card-section class="row items-center">
+            <div class="text-h6">{{ editingNote ? 'Edit' : 'Add' }} Long Note</div>
+            <q-space />
+            <div class="row items-center q-gutter-xs q-mr-sm">
+              <q-btn
+                dense
+                flat
+                round
+                icon="remove"
+                :disable="noteEditorFontScale <= 50"
+                @click="decreaseNoteEditorFontScale"
+              />
+              <div class="text-caption" style="min-width: 44px; text-align: center">
+                {{ noteEditorFontScale }}%
+              </div>
+              <q-btn
+                dense
+                flat
+                round
+                icon="add"
+                :disable="noteEditorFontScale >= 200"
+                @click="increaseNoteEditorFontScale"
+              />
+            </div>
+            <div v-if="isAutosaving" class="text-caption text-primary q-mr-sm">
+              <q-spinner-dots size="16px" class="q-mr-xs" />
+              Autosaving...
+            </div>
+            <div v-else-if="lastAutosaved" class="text-caption text-grey q-mr-sm">
+              <q-icon name="check_circle" size="16px" class="q-mr-xs" />
+              Saved
+            </div>
+            <q-btn icon="close" flat round dense @click="closeLongNoteDialog" />
+          </q-card-section>
 
-        <q-card-section class="q-pt-none">
-          <q-editor
-            ref="longNoteEditor"
-            v-model="noteText"
-            min-height="300px"
-            :definitions="{
-              removeBreaks: {
-                label: 'Remove \\n',
-                tip: 'Remove line breaks from selection',
-                handler: stripLineBreaks,
-              },
-            }"
-            :toolbar="[
-              ['bold', 'italic', 'underline'],
-              ['unordered', 'ordered', 'outdent', 'indent'],
-              ['quote', 'code', 'code_block'],
-              ['link', 'image', 'fullscreen'],
-              ['undo', 'redo'],
-              ['upload', 'save'],
-              ['removeBreaks'],
-            ]"
-            @keydown="handleEditorKeydown"
-          />
-        </q-card-section>
+          <q-card-section class="q-pt-none">
+            <q-editor
+              ref="longNoteEditor"
+              v-model="noteText"
+              min-height="300px"
+              :content-style="editorContentStyle"
+              :definitions="{
+                removeBreaks: {
+                  label: 'Remove \\n',
+                  tip: 'Remove line breaks from selection',
+                  handler: stripLineBreaks,
+                },
+              }"
+              :toolbar="[
+                ['bold', 'italic', 'underline'],
+                ['unordered', 'ordered', 'outdent', 'indent'],
+                ['quote', 'code', 'code_block'],
+                ['link', 'image', 'fullscreen'],
+                ['undo', 'redo'],
+                ['upload', 'save'],
+                ['removeBreaks'],
+              ]"
+              @keydown="handleEditorKeydown"
+            />
+          </q-card-section>
 
-        <q-card-actions align="right">
-          <q-btn flat label="Cancel" @click="closeLongNoteDialog" />
-          <q-btn flat label="Save" color="primary" @click="saveLongNote" />
-        </q-card-actions>
+          <q-card-actions align="right">
+            <q-btn flat label="Cancel" @click="closeLongNoteDialog" />
+            <q-btn flat label="Save" color="primary" @click="saveLongNote" />
+          </q-card-actions>
+        </div>
       </q-card>
     </q-dialog>
   </div>
 </template>
 
 <script setup>
-import { ref, computed, watch } from 'vue'
+import { ref, computed, watch, onMounted } from 'vue'
 import { useOutlineStore } from 'stores/outline-store'
 import { storeToRefs } from 'pinia'
 import { splitScriptRuns } from 'src/utils/text/script-runs'
@@ -297,6 +321,7 @@ const props = defineProps({
 const store = useOutlineStore()
 const {
   fontSize,
+  fontScale,
   indentSize,
   showIndentGuides,
   currentlyEditingId,
@@ -307,6 +332,9 @@ const {
   nonTibetanFontSize,
   nonTibetanFontColor,
 } = storeToRefs(store)
+
+const scaleMultiplier = computed(() => (fontScale.value || 100) / 100)
+const scaledUiFontSize = computed(() => Math.round((fontSize.value || 16) * scaleMultiplier.value))
 
 const showShortNoteDialog = ref(false)
 const showLongNoteDialog = ref(false)
@@ -319,10 +347,29 @@ const longNoteEditor = ref(null)
 const autosaveTimer = ref(null)
 const isAutosaving = ref(false)
 const lastAutosaved = ref(null)
+const NOTE_EDITOR_FONT_SCALE_KEY = 'scaffold-note-editor-font-scale'
+const noteEditorFontScale = ref(100)
+const editorContentStyle = computed(() => ({
+  fontSize: `${Math.round(16 * (noteEditorFontScale.value / 100))}px`,
+  padding: '12px',
+}))
 
 // Watch for long note dialog state changes to update global state
 watch(showLongNoteDialog, (isOpen) => {
   store.setLongNoteEditorActive(isOpen)
+})
+
+onMounted(() => {
+  const savedScale = localStorage.getItem(NOTE_EDITOR_FONT_SCALE_KEY)
+  if (!savedScale) return
+  const parsed = parseInt(savedScale, 10)
+  if (!Number.isNaN(parsed)) {
+    noteEditorFontScale.value = Math.min(200, Math.max(50, parsed))
+  }
+})
+
+watch(noteEditorFontScale, (value) => {
+  localStorage.setItem(NOTE_EDITOR_FONT_SCALE_KEY, value.toString())
 })
 
 function toggleCollapse() {
@@ -522,14 +569,14 @@ function getRunStyle(scriptType) {
   if (scriptType === 'tibetan') {
     return {
       fontFamily: tibetanFontFamily.value || 'Microsoft Himalaya',
-      fontSize: `${tibetanFontSize.value || 20}px`,
+      fontSize: `${Math.round((tibetanFontSize.value || 20) * scaleMultiplier.value)}px`,
       color: tibetanFontColor.value || '#000000',
     }
   }
 
   return {
     fontFamily: nonTibetanFontFamily.value || 'Aptos, sans-serif',
-    fontSize: `${nonTibetanFontSize.value || 16}px`,
+    fontSize: `${Math.round((nonTibetanFontSize.value || 16) * scaleMultiplier.value)}px`,
     color: nonTibetanFontColor.value || '#000000',
   }
 }
@@ -642,6 +689,14 @@ function stripLineBreaks() {
     // Update the editor content
     noteText.value = `<p>${cleanedText}</p>`
   }
+}
+
+function increaseNoteEditorFontScale() {
+  noteEditorFontScale.value = Math.min(200, noteEditorFontScale.value + 10)
+}
+
+function decreaseNoteEditorFontScale() {
+  noteEditorFontScale.value = Math.max(50, noteEditorFontScale.value - 10)
 }
 
 /*
@@ -809,6 +864,16 @@ function handleLongNotePaste(event) {
   margin-top: 8px;
   font-size: 0.7em;
   margin: 4px;
+}
+
+.long-note-dialog-wrap {
+  max-width: 1100px;
+  margin: 0 auto;
+  width: 100%;
+}
+
+.long-note-dialog-wrap :deep(.q-editor__content) {
+  padding: 12px;
 }
 
 .item-children {
