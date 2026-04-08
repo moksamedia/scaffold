@@ -10,6 +10,9 @@ import {
   importFromJSON 
 } from 'src/utils/export/json.js'
 
+/** Placeholder text for newly created list items (cleared when user starts editing). */
+export const DEFAULT_NEW_LIST_ITEM_TEXT = 'New Item'
+
 export const useOutlineStore = defineStore('outline', () => {
   const ITEM_KIND = {
     ITEM: 'item',
@@ -222,7 +225,7 @@ export const useOutlineStore = defineStore('outline', () => {
     if (!currentProject.value) return
 
     saveState('Add root item')
-    const newItem = createListItem('New Item')
+    const newItem = createListItem(DEFAULT_NEW_LIST_ITEM_TEXT)
     currentProject.value.lists.push(newItem)
     currentProject.value.updatedAt = new Date().toISOString()
     saveToLocalStorage()
@@ -233,7 +236,7 @@ export const useOutlineStore = defineStore('outline', () => {
     if (!currentProject.value) return
 
     saveState('Add root item')
-    const newItem = createListItem('New Item')
+    const newItem = createListItem(DEFAULT_NEW_LIST_ITEM_TEXT)
 
     if (!referenceId) {
       currentProject.value.lists.push(newItem)
@@ -295,7 +298,7 @@ export const useOutlineStore = defineStore('outline', () => {
     if (parent) {
       if (isDividerItem(parent)) return
       saveState('Add child item')
-      const newItem = createListItem('New Item', parentId)
+      const newItem = createListItem(DEFAULT_NEW_LIST_ITEM_TEXT, parentId)
       parent.children.push(newItem)
       parent.collapsed = false
       currentProject.value.updatedAt = new Date().toISOString()
@@ -534,6 +537,45 @@ export const useOutlineStore = defineStore('outline', () => {
     }
 
     return findSiblings(currentProject.value.lists)
+  }
+
+  /** Next sibling at the same depth, no wraparound; skips root dividers. */
+  function findNextSiblingNoWrap(itemId) {
+    if (!currentProject.value) return null
+
+    function findInList(items) {
+      const currentIndex = items.findIndex((item) => item.id === itemId)
+      if (currentIndex !== -1) {
+        for (let i = currentIndex + 1; i < items.length; i++) {
+          if (!isDividerItem(items[i])) {
+            return items[i]
+          }
+        }
+        return null
+      }
+
+      for (const item of items) {
+        if (item.children?.length) {
+          const found = findInList(item.children)
+          if (found) return found
+        }
+      }
+      return null
+    }
+
+    return findInList(currentProject.value.lists)
+  }
+
+  /** Leave current item and start editing the next sibling, or clear editing if none. */
+  function exitEditAndFocusNextSibling(itemId) {
+    const next = findNextSiblingNoWrap(itemId)
+    if (next) {
+      currentlyEditingId.value = next.id
+      scrollToItemIfNeeded(next.id)
+    } else {
+      currentlyEditingId.value = null
+    }
+    return next
   }
 
   function setEditingItem(itemId) {
@@ -1479,6 +1521,9 @@ export const useOutlineStore = defineStore('outline', () => {
     toggleRootListType,
     toggleChildrenListType,
     findNextSibling,
+    findNextSiblingNoWrap,
+    exitEditAndFocusNextSibling,
+    scrollToItemIfNeeded,
     setEditingItem,
     navigateToNextSibling,
     navigateToNextItem,

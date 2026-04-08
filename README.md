@@ -77,7 +77,7 @@ A powerful hierarchical outline and note-taking application built with Vue 3 and
 
 2. **Add Outline Items**
    - Click "Add Root Item" or press the "+" button
-   - Type your content and press Enter to create the next item
+   - Type your content; press Enter to finish editing and move to the next sibling when there is one
    - Use Tab to create child items, Shift+Tab to navigate through items
 
 3. **Add Notes**
@@ -97,7 +97,7 @@ A powerful hierarchical outline and note-taking application built with Vue 3 and
 
 - `Tab` - Navigate to next sibling item (with wraparound)
 - `Shift + Tab` - Navigate to next item in entire outline
-- `Enter` - Stop editing and create new sibling
+- `Enter` - Stop editing; if there is a next sibling at the same level, start editing it (default “New Item” text is cleared when you start editing)
 - `Esc` - Stop editing without changes
 
 #### Long Note Editor

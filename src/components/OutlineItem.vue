@@ -326,7 +326,7 @@
 
 <script setup>
 import { ref, computed, watch, onMounted } from 'vue'
-import { useOutlineStore } from 'stores/outline-store'
+import { useOutlineStore, DEFAULT_NEW_LIST_ITEM_TEXT } from 'stores/outline-store'
 import { storeToRefs } from 'pinia'
 import { splitScriptRuns } from 'src/utils/text/script-runs'
 
@@ -398,6 +398,17 @@ watch(showLongNoteDialog, (isOpen) => {
   store.setLongNoteEditorActive(isOpen)
 })
 
+watch(
+  isEditing,
+  (editing) => {
+    if (!editing || isDivider.value) return
+    if (props.item.text === DEFAULT_NEW_LIST_ITEM_TEXT) {
+      store.updateListItem(props.item.id, { text: '' })
+    }
+  },
+  { flush: 'post' },
+)
+
 onMounted(() => {
   const savedScale = localStorage.getItem(NOTE_EDITOR_FONT_SCALE_KEY)
   if (!savedScale) return
@@ -436,8 +447,7 @@ function stopEditing() {
 }
 
 function handleEnter() {
-  stopEditing()
-  addSibling()
+  store.exitEditAndFocusNextSibling(props.item.id)
 }
 
 function handleTab() {
