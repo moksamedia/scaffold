@@ -9,6 +9,13 @@ import {
   exportAllProjectsAsJSON,
   importFromJSON 
 } from 'src/utils/export/json.js'
+import {
+  getTabInstanceId,
+  writeProjectLock,
+  removeProjectLock,
+  isProjectLockedByOtherTab,
+  PROJECT_LOCK_HEARTBEAT_MS,
+} from 'src/utils/project-tab-lock.js'
 
 /** Placeholder text for newly created list items (cleared when user starts editing). */
 export const DEFAULT_NEW_LIST_ITEM_TEXT = 'New Item'
@@ -37,6 +44,9 @@ export const useOutlineStore = defineStore('outline', () => {
   const maxHistorySize = 50
   const currentlyEditingId = ref(null)
   const longNoteEditorActive = ref(false)
+  /** Set when selectProject is blocked because another tab holds the lock (for UI dialog). */
+  const projectLockBlockedProjectId = ref(null)
+  let projectLockHeartbeatTimer = null
 
   const currentProject = computed(() => {
     return projects.value.find((p) => p.id === currentProjectId.value)
@@ -116,6 +126,48 @@ export const useOutlineStore = defineStore('outline', () => {
     redoStack.value = []
   }
 
+  function stopProjectLockHeartbeat() {
+    if (projectLockHeartbeatTimer !== null) {
+      clearInterval(projectLockHeartbeatTimer)
+      projectLockHeartbeatTimer = null
+    }
+  }
+
+  /** Start / renew heartbeat for the current project (this tab holds the lock). */
+  function syncProjectLockSession() {
+    stopProjectLockHeartbeat()
+    const id = currentProjectId.value
+    if (!id) return
+    writeProjectLock(id)
+    projectLockHeartbeatTimer = setInterval(() => {
+      if (currentProjectId.value) {
+        writeProjectLock(currentProjectId.value)
+      }
+    }, PROJECT_LOCK_HEARTBEAT_MS)
+  }
+
+  function releaseCurrentProjectLockForUnload() {
+    const id = currentProjectId.value
+    if (id) {
+      removeProjectLock(id)
+    }
+    stopProjectLockHeartbeat()
+  }
+
+  function applyProjectSettingsFromProject(project) {
+    if (!project?.settings) return
+    fontSize.value = project.settings.nonTibetanFontSize || project.settings.fontSize || 16
+    indentSize.value = project.settings.indentSize
+    defaultListType.value = project.settings.defaultListType
+    showIndentGuides.value = project.settings.showIndentGuides
+    tibetanFontFamily.value = project.settings.tibetanFontFamily || 'Microsoft Himalaya'
+    tibetanFontSize.value = project.settings.tibetanFontSize || 20
+    tibetanFontColor.value = project.settings.tibetanFontColor || '#000000'
+    nonTibetanFontFamily.value = project.settings.nonTibetanFontFamily || 'Aptos, sans-serif'
+    nonTibetanFontSize.value = project.settings.nonTibetanFontSize || 16
+    nonTibetanFontColor.value = project.settings.nonTibetanFontColor || '#000000'
+  }
+
   function createProject(name) {
     // Load program-wide settings for defaults
     const programSettings = JSON.parse(localStorage.getItem('scaffold-program-settings') || '{}')
@@ -150,10 +202,12 @@ export const useOutlineStore = defineStore('outline', () => {
   function deleteProject(projectId) {
     const index = projects.value.findIndex((p) => p.id === projectId)
     if (index !== -1) {
+      removeProjectLock(projectId)
       projects.value.splice(index, 1)
       if (currentProjectId.value === projectId) {
         currentProjectId.value = projects.value[0]?.id || null
       }
+      syncProjectLockSession()
       saveToLocalStorage()
     }
   }
@@ -167,26 +221,47 @@ export const useOutlineStore = defineStore('outline', () => {
     }
   }
 
+  /**
+   * Switch active project. Returns false if another tab holds a fresh lock on this project.
+   */
   function selectProject(projectId) {
+    if (projectId === currentProjectId.value) {
+      projectLockBlockedProjectId.value = null
+      writeProjectLock(projectId)
+      syncProjectLockSession()
+      return true
+    }
+
+    if (isProjectLockedByOtherTab(projectId)) {
+      projectLockBlockedProjectId.value = projectId
+      return false
+    }
+
+    projectLockBlockedProjectId.value = null
+
+    const prevId = currentProjectId.value
+    if (prevId && prevId !== projectId) {
+      removeProjectLock(prevId)
+    }
+
     currentProjectId.value = projectId
     clearHistory()
 
-    // Restore project-specific settings
     const project = projects.value.find((p) => p.id === projectId)
-    if (project && project.settings) {
-      fontSize.value = project.settings.nonTibetanFontSize || project.settings.fontSize || 16
-      indentSize.value = project.settings.indentSize
-      defaultListType.value = project.settings.defaultListType
-      showIndentGuides.value = project.settings.showIndentGuides
-      tibetanFontFamily.value = project.settings.tibetanFontFamily || 'Microsoft Himalaya'
-      tibetanFontSize.value = project.settings.tibetanFontSize || 20
-      tibetanFontColor.value = project.settings.tibetanFontColor || '#000000'
-      nonTibetanFontFamily.value = project.settings.nonTibetanFontFamily || 'Aptos, sans-serif'
-      nonTibetanFontSize.value = project.settings.nonTibetanFontSize || 16
-      nonTibetanFontColor.value = project.settings.nonTibetanFontColor || '#000000'
-    }
+    applyProjectSettingsFromProject(project)
 
     saveToLocalStorage()
+    syncProjectLockSession()
+    return true
+  }
+
+  function clearProjectLockBlocked() {
+    projectLockBlockedProjectId.value = null
+  }
+
+  /** For sidebar: project row disabled when another tab holds a fresh lock (not this tab’s current). */
+  function isProjectLockHeldByOtherTab(projectId) {
+    return isProjectLockedByOtherTab(projectId)
   }
 
   function createListItem(text = '', parentId = null) {
@@ -1197,6 +1272,7 @@ export const useOutlineStore = defineStore('outline', () => {
   function loadFromLocalStorage() {
     const savedProjects = localStorage.getItem('outline-projects')
     const savedCurrentId = localStorage.getItem('outline-current-project')
+    let adjustedCurrentDueToLock = false
     const savedFontSize = localStorage.getItem('outline-font-size')
     const savedFontScale = localStorage.getItem('outline-font-scale')
     const savedIndentSize = localStorage.getItem('outline-indent-size')
@@ -1313,11 +1389,23 @@ export const useOutlineStore = defineStore('outline', () => {
       }
     }
 
-    if (savedCurrentId) {
-      currentProjectId.value = savedCurrentId
-      const selectedProject = projects.value.find((project) => project.id === savedCurrentId)
-      if (selectedProject?.settings?.nonTibetanFontSize) {
-        fontSize.value = selectedProject.settings.nonTibetanFontSize
+    if (savedCurrentId && projects.value.length > 0) {
+      const myTabId = getTabInstanceId()
+      let targetId = savedCurrentId
+      const exists = projects.value.some((p) => p.id === savedCurrentId)
+      if (exists && isProjectLockedByOtherTab(savedCurrentId, myTabId)) {
+        const fallback = projects.value.find((p) => !isProjectLockedByOtherTab(p.id, myTabId))
+        targetId = fallback?.id ?? null
+        adjustedCurrentDueToLock = targetId !== savedCurrentId
+      } else if (!exists) {
+        targetId = projects.value[0]?.id ?? null
+        adjustedCurrentDueToLock = true
+      }
+      currentProjectId.value = targetId
+      if (targetId) {
+        const selectedProject = projects.value.find((project) => project.id === targetId)
+        applyProjectSettingsFromProject(selectedProject)
+        clearHistory()
       }
     }
 
@@ -1325,6 +1413,17 @@ export const useOutlineStore = defineStore('outline', () => {
       const exampleProject = createExampleProject()
       currentProjectId.value = exampleProject.id
     }
+
+    syncProjectLockSession()
+    if (adjustedCurrentDueToLock) {
+      saveToLocalStorage()
+    }
+  }
+
+  function registerProjectLockUnloadHandlers() {
+    const release = () => releaseCurrentProjectLockForUnload()
+    window.addEventListener('beforeunload', release)
+    window.addEventListener('pagehide', release)
   }
 
   function saveVersion(name = null, trigger = 'manual') {
@@ -1429,10 +1528,17 @@ export const useOutlineStore = defineStore('outline', () => {
         restoredProject.updatedAt = new Date().toISOString()
         
         // Add to projects
+        const prevId = currentProjectId.value
+        if (prevId) {
+          removeProjectLock(prevId)
+        }
         projects.value.push(restoredProject)
         currentProjectId.value = restoredProject.id
+        applyProjectSettingsFromProject(restoredProject)
+        clearHistory()
+        syncProjectLockSession()
         saveToLocalStorage()
-        
+
         return restoredProject.id
       }
     } catch (error) {
@@ -1470,7 +1576,8 @@ export const useOutlineStore = defineStore('outline', () => {
   }
 
   loadFromLocalStorage()
-  
+  registerProjectLockUnloadHandlers()
+
   // Setup auto-versioning on load
   setTimeout(setupAutoVersioning, 100)
   
@@ -1504,6 +1611,9 @@ export const useOutlineStore = defineStore('outline', () => {
     deleteProject,
     renameProject,
     selectProject,
+    projectLockBlockedProjectId,
+    clearProjectLockBlocked,
+    isProjectLockHeldByOtherTab,
     addRootListItem,
     addRootListItemAfter,
     addRootDivider,

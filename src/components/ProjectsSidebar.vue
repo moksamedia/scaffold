@@ -121,7 +121,8 @@
             v-ripple
             :active="project.id === currentProjectId"
             active-class="bg-primary text-white"
-            @click="selectProject(project.id)"
+            :class="{ 'project-row-locked': isProjectLockedRow(project.id) }"
+            @click="onProjectRowClick(project.id)"
             class="q-mb-xs rounded-borders"
           >
             <q-item-section v-if="editingProjectId !== project.id">
@@ -220,11 +221,14 @@
 </template>
 
 <script setup>
-import { ref } from 'vue'
+import { ref, onMounted, onUnmounted } from 'vue'
 import { useOutlineStore } from 'stores/outline-store'
 import { storeToRefs } from 'pinia'
+import { useQuasar } from 'quasar'
+import { isProjectLockStorageKey } from 'src/utils/project-tab-lock'
 
 const store = useOutlineStore()
+const $q = useQuasar()
 const {
   projects,
   currentProjectId,
@@ -242,6 +246,63 @@ const projectToDelete = ref(null)
 const editingProjectId = ref(null)
 const editingProjectName = ref('')
 
+/** Bumped on cross-tab lock storage changes so lock state re-evaluates in template. */
+const lockTick = ref(0)
+let lockPollTimer = null
+
+function refreshProjectLockState() {
+  lockTick.value += 1
+}
+
+function isProjectLockedRow(projectId) {
+  lockTick.value
+  return store.isProjectLockHeldByOtherTab(projectId)
+}
+
+function showProjectLockedDialog() {
+  $q.dialog({
+    title: 'Project open elsewhere',
+    message:
+      'This project is already open in another tab or window in this browser. Close it there or wait until it becomes inactive before opening it here.',
+    ok: {
+      label: 'OK',
+      color: 'primary',
+    },
+  })
+}
+
+function onProjectRowClick(projectId) {
+  if (store.isProjectLockHeldByOtherTab(projectId)) {
+    showProjectLockedDialog()
+    return
+  }
+  const ok = store.selectProject(projectId)
+  if (!ok) {
+    showProjectLockedDialog()
+  }
+}
+
+function onStorageForLocks(event) {
+  if (event.key && isProjectLockStorageKey(event.key)) {
+    refreshProjectLockState()
+  }
+}
+
+onMounted(() => {
+  window.addEventListener('storage', onStorageForLocks)
+  window.addEventListener('focus', refreshProjectLockState)
+  lockPollTimer = window.setInterval(refreshProjectLockState, 5000)
+})
+
+onUnmounted(() => {
+  window.removeEventListener('storage', onStorageForLocks)
+  window.removeEventListener('focus', refreshProjectLockState)
+  if (lockPollTimer !== null) {
+    clearInterval(lockPollTimer)
+    lockPollTimer = null
+  }
+})
+
 const listTypeOptions = [
   { label: 'Numbered (1, 2, 3)', value: 'ordered' },
   { label: 'Bulleted (•)', value: 'unordered' }
@@ -251,13 +312,10 @@ function createNewProject() {
   if (newProjectName.value.trim()) {
     const project = store.createProject(newProjectName.value.trim())
     store.selectProject(project.id)
+    refreshProjectLockState()
     newProjectName.value = ''
     showNewProjectDialog.value = false
   }
-}
-
-function selectProject(projectId) {
-  store.selectProject(projectId)
 }
 
 function confirmDeleteProject(project) {
@@ -364,3 +422,10 @@ defineExpose({
   toggleDrawer
 })
 </script>
+
+<style scoped>
+.project-row-locked {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+</style>
