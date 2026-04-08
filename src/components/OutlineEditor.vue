@@ -64,6 +64,9 @@
         <q-btn round dense flat icon="add" color="primary" @click="addRootItem">
           <q-tooltip>Add Root Item</q-tooltip>
         </q-btn>
+        <q-btn round dense flat icon="horizontal_rule" color="secondary" @click="addRootDivider">
+          <q-tooltip>Add Root Divider</q-tooltip>
+        </q-btn>
         <q-separator vertical inset class="q-mx-sm" />
         <q-btn round dense flat icon="download">
           <q-tooltip>Export</q-tooltip>
@@ -96,10 +99,10 @@
 
       <div v-else class="outline-items">
         <OutlineItem
-          v-for="(item, index) in currentProject.lists"
-          :key="item.id"
-          :item="item"
-          :index="index"
+          v-for="displayItem in rootDisplayItems"
+          :key="displayItem.item.id"
+          :item="displayItem.item"
+          :index="displayItem.index"
           :isRoot="true"
           :listType="currentProject.rootListType"
         />
@@ -149,6 +152,24 @@ const { currentProject, canUndo, canRedo, allLongNotesVisible } = storeToRefs(st
 const $q = useQuasar()
 
 const isMac = computed(() => navigator.platform.toUpperCase().indexOf('MAC') >= 0)
+const rootDisplayItems = computed(() => {
+  if (!currentProject.value) return []
+
+  let orderedIndex = 0
+  return currentProject.value.lists.map((item) => {
+    if (item.kind === 'divider') {
+      orderedIndex = 0
+      return { item, index: -1 }
+    }
+
+    if (currentProject.value.rootListType === 'ordered') {
+      orderedIndex += 1
+      return { item, index: orderedIndex - 1 }
+    }
+
+    return { item, index: 0 }
+  })
+})
 
 // Save version dialog
 const showSaveVersionDialog = ref(false)
@@ -156,6 +177,10 @@ const versionName = ref('')
 
 function addRootItem() {
   store.addRootListItem()
+}
+
+function addRootDivider() {
+  store.addRootDivider()
 }
 
 function toggleRootListType() {

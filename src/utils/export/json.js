@@ -66,11 +66,17 @@ export function exportAsJSON(projects, selectedProjectId = null) {
 
 function processItems(items) {
   return items.map(item => {
+    const kind = item.kind || 'item'
     const processedItem = {
       id: item.id,
-      text: item.text || '',
-      collapsed: item.collapsed || false,
+      kind,
+      text: kind === 'divider' ? '' : (item.text || ''),
+      collapsed: kind === 'divider' ? false : (item.collapsed || false),
       childrenType: item.childrenType || 'ordered'
+    }
+
+    if (kind === 'divider') {
+      return processedItem
     }
 
     // Add short notes if they exist
@@ -96,6 +102,31 @@ function processItems(items) {
     }
 
     return processedItem
+  })
+}
+
+function normalizeImportedItems(items = []) {
+  return items.map((item) => {
+    const kind = item.kind || 'item'
+    const normalized = {
+      id: item.id,
+      kind,
+      text: kind === 'divider' ? '' : (item.text || ''),
+      collapsed: kind === 'divider' ? false : !!item.collapsed,
+      childrenType: item.childrenType || 'ordered',
+      shortNotes: [],
+      longNotes: [],
+      children: [],
+    }
+
+    if (kind === 'divider') {
+      return normalized
+    }
+
+    normalized.shortNotes = Array.isArray(item.shortNotes) ? item.shortNotes : []
+    normalized.longNotes = Array.isArray(item.longNotes) ? item.longNotes : []
+    normalized.children = Array.isArray(item.children) ? normalizeImportedItems(item.children) : []
+    return normalized
   })
 }
 
@@ -227,7 +258,7 @@ export function importFromJSON(jsonData) {
         nonTibetanFontColor: '#000000',
         ...project.settings
       },
-      lists: project.items || []
+      lists: normalizeImportedItems(project.items || [])
     })),
     warnings: validation.warnings
   }

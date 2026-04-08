@@ -14,6 +14,7 @@ Scaffold is a Quasar Vue 3 application for creating and managing hierarchical ou
 - Multiple projects with individual settings
 - Infinite nesting of outline items
 - Toggle between ordered/unordered lists at any level
+- Root divider rows at the top level to separate sections and reset ordered numbering
 - Short notes (inline) and long notes (collapsible blocks with rich text)
 - Undo/redo functionality with 50-item history
 - Per-project settings: font size, indent size, default list type, indent guides, and script-specific typography
@@ -31,6 +32,7 @@ Scaffold is a Quasar Vue 3 application for creating and managing hierarchical ou
 - Pinia store with all application state management
 - Project CRUD operations with program-wide default settings
 - List item operations (create, update, delete, move, indent/outdent)
+- Root divider operations with `kind`-aware guards (`item` vs `divider`)
 - Notes management (short/long notes) with visibility controls
 - Undo/redo system with state snapshots
 - Per-project settings storage and restoration with real-time sync
@@ -45,6 +47,7 @@ Scaffold is a Quasar Vue 3 application for creating and managing hierarchical ou
 ### `/src/components/`
 - `OutlineItem.vue` - Recursive component for rendering nested list items with q-editor enhancements
 - `OutlineEditor.vue` - Main editing interface with project header and controls, export menu, bulk operations, version saving
+- `OutlineEditor.vue` - Main editing interface with section-aware root numbering and root divider insertion
 - `ProjectsSidebar.vue` - Left panel for project management and real-time settings controls
 - `MainLayout.vue` - Application layout with sidebar toggle and settings dialog integration
 - `SettingsDialog.vue` - Tabbed dialog for program-wide and project-specific settings, version history management
@@ -53,6 +56,7 @@ Scaffold is a Quasar Vue 3 application for creating and managing hierarchical ou
 - `markdown.js` - Markdown export functionality with HTML to markdown conversion and blockquote handling
 - `docx.js` - DOCX export with dynamic nesting levels, Word styles, and paragraph structure preservation
 - `json.js` - JSON export/import with schema validation, conflict resolution, and format versioning
+- `json.js` - JSON export/import with root-entry `kind` persistence (`item`/`divider`)
 
 ### Key Technical Patterns
 - Reactive Vue 3 Composition API throughout
@@ -74,6 +78,11 @@ Scaffold is a Quasar Vue 3 application for creating and managing hierarchical ou
 - Conditional scroll-to-view that only scrolls if item is not already visible
 - Rich text editor for long notes with lists, indentation, quotes, code blocks, links, images
 - Export system: Markdown, DOCX, and JSON formats with proper formatting
+- Root divider sections:
+  - Divider rows are root-level structural separators
+  - Ordered numbering resets after each divider in UI and exports
+  - Markdown exports divider as `---`
+  - DOCX exports divider as separator paragraph and uses per-section ordered numbering references
 - DOCX export features:
   - Dynamic nesting level detection and numbering system generation
   - Word style application: List Paragraph, Comment, Block Quotation

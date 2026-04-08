@@ -11,6 +11,11 @@ import {
 } from 'src/utils/export/json.js'
 
 export const useOutlineStore = defineStore('outline', () => {
+  const ITEM_KIND = {
+    ITEM: 'item',
+    DIVIDER: 'divider',
+  }
+
   const projects = ref([])
   const currentProjectId = ref(null)
   const fontSize = ref(14)
@@ -184,6 +189,7 @@ export const useOutlineStore = defineStore('outline', () => {
   function createListItem(text = '', parentId = null) {
     return {
       id: generateId(),
+      kind: ITEM_KIND.ITEM,
       text,
       collapsed: false,
       shortNotes: [],
@@ -192,6 +198,24 @@ export const useOutlineStore = defineStore('outline', () => {
       childrenType: defaultListType.value,
       parentId,
     }
+  }
+
+  function createDividerItem() {
+    return {
+      id: generateId(),
+      kind: ITEM_KIND.DIVIDER,
+      text: '',
+      collapsed: false,
+      shortNotes: [],
+      longNotes: [],
+      children: [],
+      childrenType: defaultListType.value,
+      parentId: null,
+    }
+  }
+
+  function isDividerItem(item) {
+    return item?.kind === ITEM_KIND.DIVIDER
   }
 
   function addRootListItem() {
@@ -203,6 +227,39 @@ export const useOutlineStore = defineStore('outline', () => {
     currentProject.value.updatedAt = new Date().toISOString()
     saveToLocalStorage()
     return newItem
+  }
+
+  function addRootListItemAfter(referenceId = null) {
+    if (!currentProject.value) return
+
+    saveState('Add root item')
+    const newItem = createListItem('New Item')
+
+    if (!referenceId) {
+      currentProject.value.lists.push(newItem)
+    } else {
+      const index = currentProject.value.lists.findIndex((item) => item.id === referenceId)
+      if (index === -1) {
+        currentProject.value.lists.push(newItem)
+      } else {
+        currentProject.value.lists.splice(index + 1, 0, newItem)
+      }
+    }
+
+    currentProject.value.updatedAt = new Date().toISOString()
+    saveToLocalStorage()
+    return newItem
+  }
+
+  function addRootDivider() {
+    if (!currentProject.value) return
+
+    saveState('Add root divider')
+    const divider = createDividerItem()
+    currentProject.value.lists.push(divider)
+    currentProject.value.updatedAt = new Date().toISOString()
+    saveToLocalStorage()
+    return divider
   }
 
   function findItemById(items, id) {
@@ -223,6 +280,7 @@ export const useOutlineStore = defineStore('outline', () => {
 
     const item = findItemById(currentProject.value.lists, itemId)
     if (item) {
+      if (isDividerItem(item)) return
       saveState('Update item')
       Object.assign(item, updates)
       currentProject.value.updatedAt = new Date().toISOString()
@@ -235,6 +293,7 @@ export const useOutlineStore = defineStore('outline', () => {
 
     const parent = findItemById(currentProject.value.lists, parentId)
     if (parent) {
+      if (isDividerItem(parent)) return
       saveState('Add child item')
       const newItem = createListItem('New Item', parentId)
       parent.children.push(newItem)
@@ -272,6 +331,7 @@ export const useOutlineStore = defineStore('outline', () => {
 
     const item = findItemById(currentProject.value.lists, itemId)
     if (item) {
+      if (isDividerItem(item)) return
       item.shortNotes.push({
         id: generateId(),
         text,
@@ -287,6 +347,7 @@ export const useOutlineStore = defineStore('outline', () => {
 
     const item = findItemById(currentProject.value.lists, itemId)
     if (item) {
+      if (isDividerItem(item)) return
       const noteId = generateId()
       item.longNotes.push({
         id: noteId,
@@ -305,6 +366,7 @@ export const useOutlineStore = defineStore('outline', () => {
 
     const item = findItemById(currentProject.value.lists, itemId)
     if (item) {
+      if (isDividerItem(item)) return
       const notes = noteType === 'short' ? item.shortNotes : item.longNotes
       const index = notes.findIndex((n) => n.id === noteId)
       if (index !== -1) {
@@ -320,6 +382,7 @@ export const useOutlineStore = defineStore('outline', () => {
 
     const item = findItemById(currentProject.value.lists, itemId)
     if (item) {
+      if (isDividerItem(item)) return
       const notes = noteType === 'short' ? item.shortNotes : item.longNotes
       const note = notes.find((n) => n.id === noteId)
       if (note) {
@@ -335,6 +398,7 @@ export const useOutlineStore = defineStore('outline', () => {
 
     const item = findItemById(currentProject.value.lists, itemId)
     if (item) {
+      if (isDividerItem(item)) return
       const note = item.longNotes.find((n) => n.id === noteId)
       if (note) {
         note.collapsed = !note.collapsed
@@ -376,6 +440,7 @@ export const useOutlineStore = defineStore('outline', () => {
     function findAndIndent(items) {
       for (let i = 0; i < items.length; i++) {
         if (items[i].id === itemId && i > 0) {
+          if (isDividerItem(items[i]) || isDividerItem(items[i - 1])) return false
           const item = items.splice(i, 1)[0]
           item.parentId = items[i - 1].id
           items[i - 1].children.push(item)
@@ -399,6 +464,7 @@ export const useOutlineStore = defineStore('outline', () => {
     function findAndOutdent(items, parentItems = null, parentId = null) {
       for (let i = 0; i < items.length; i++) {
         if (items[i].id === itemId && parentItems) {
+          if (isDividerItem(items[i])) return false
           const item = items.splice(i, 1)[0]
           item.parentId = parentId
           const parentIndex = parentItems.findIndex((p) => p.children === items)
@@ -432,6 +498,7 @@ export const useOutlineStore = defineStore('outline', () => {
 
     const item = findItemById(currentProject.value.lists, itemId)
     if (item) {
+      if (isDividerItem(item)) return
       saveState('Toggle children list type')
       item.childrenType = item.childrenType === 'ordered' ? 'unordered' : 'ordered'
       currentProject.value.updatedAt = new Date().toISOString()
@@ -446,9 +513,14 @@ export const useOutlineStore = defineStore('outline', () => {
       // Check if itemId is in this level
       const currentIndex = items.findIndex((item) => item.id === itemId)
       if (currentIndex !== -1) {
-        // Found the item, return next sibling (or first if at end)
-        const nextIndex = (currentIndex + 1) % items.length
-        return items[nextIndex]
+        // Found the item, return next non-divider sibling (with wraparound).
+        for (let offset = 1; offset <= items.length; offset++) {
+          const nextIndex = (currentIndex + offset) % items.length
+          if (!isDividerItem(items[nextIndex])) {
+            return items[nextIndex]
+          }
+        }
+        return null
       }
 
       // Search in children
@@ -493,7 +565,11 @@ export const useOutlineStore = defineStore('outline', () => {
 
           // 1. Check if there's a next sibling
           if (i + 1 < items.length) {
-            return items[i + 1]
+            for (let next = i + 1; next < items.length; next++) {
+              if (!isDividerItem(items[next])) {
+                return items[next]
+              }
+            }
           }
 
           // 2. No next sibling, go up to parent and find its next sibling
@@ -820,6 +896,7 @@ export const useOutlineStore = defineStore('outline', () => {
       lists: [
         {
           id: generateId(),
+          kind: ITEM_KIND.ITEM,
           text: 'Getting Started with Scaffold',
           collapsed: false,
           childrenType: 'ordered',
@@ -832,6 +909,7 @@ export const useOutlineStore = defineStore('outline', () => {
           children: [
             {
               id: generateId(),
+              kind: ITEM_KIND.ITEM,
               text: 'Create and organize hierarchical outlines',
               collapsed: false,
               childrenType: 'unordered',
@@ -843,6 +921,7 @@ export const useOutlineStore = defineStore('outline', () => {
               children: [
                 {
                   id: generateId(),
+                  kind: ITEM_KIND.ITEM,
                   text: 'Use Tab key to navigate between items',
                   collapsed: false,
                   childrenType: 'ordered',
@@ -852,6 +931,7 @@ export const useOutlineStore = defineStore('outline', () => {
                 },
                 {
                   id: generateId(),
+                  kind: ITEM_KIND.ITEM,
                   text: 'Press Enter to create new sibling items',
                   collapsed: false,
                   childrenType: 'ordered',
@@ -861,6 +941,7 @@ export const useOutlineStore = defineStore('outline', () => {
                 },
                 {
                   id: generateId(),
+                  kind: ITEM_KIND.ITEM,
                   text: 'Toggle between numbered and bullet lists',
                   collapsed: false,
                   childrenType: 'ordered',
@@ -872,6 +953,7 @@ export const useOutlineStore = defineStore('outline', () => {
             },
             {
               id: generateId(),
+              kind: ITEM_KIND.ITEM,
               text: 'Add notes to provide context and details',
               collapsed: false,
               childrenType: 'unordered',
@@ -880,6 +962,7 @@ export const useOutlineStore = defineStore('outline', () => {
               children: [
                 {
                   id: generateId(),
+                  kind: ITEM_KIND.ITEM,
                   text: 'Short notes for quick references',
                   collapsed: false,
                   childrenType: 'ordered',
@@ -892,6 +975,7 @@ export const useOutlineStore = defineStore('outline', () => {
                 },
                 {
                   id: generateId(),
+                  kind: ITEM_KIND.ITEM,
                   text: 'Long notes for detailed explanations',
                   collapsed: false,
                   childrenType: 'ordered',
@@ -909,6 +993,7 @@ export const useOutlineStore = defineStore('outline', () => {
         },
         {
           id: generateId(),
+          kind: ITEM_KIND.ITEM,
           text: 'Key Features to Explore',
           collapsed: false,
           childrenType: 'ordered',
@@ -917,6 +1002,7 @@ export const useOutlineStore = defineStore('outline', () => {
           children: [
             {
               id: generateId(),
+              kind: ITEM_KIND.ITEM,
               text: 'Export your work in multiple formats',
               collapsed: false,
               childrenType: 'unordered',
@@ -925,6 +1011,7 @@ export const useOutlineStore = defineStore('outline', () => {
               children: [
                 {
                   id: generateId(),
+                  kind: ITEM_KIND.ITEM,
                   text: 'Markdown export for documentation and web publishing',
                   collapsed: false,
                   childrenType: 'ordered',
@@ -934,6 +1021,7 @@ export const useOutlineStore = defineStore('outline', () => {
                 },
                 {
                   id: generateId(),
+                  kind: ITEM_KIND.ITEM,
                   text: 'Microsoft Word export with proper styles and formatting',
                   collapsed: false,
                   childrenType: 'ordered',
@@ -943,6 +1031,7 @@ export const useOutlineStore = defineStore('outline', () => {
                 },
                 {
                   id: generateId(),
+                  kind: ITEM_KIND.ITEM,
                   text: 'JSON export for complete backup and data portability',
                   collapsed: false,
                   childrenType: 'ordered',
@@ -954,6 +1043,7 @@ export const useOutlineStore = defineStore('outline', () => {
             },
             {
               id: generateId(),
+              kind: ITEM_KIND.ITEM,
               text: 'Keyboard shortcuts for efficient editing',
               collapsed: false,
               childrenType: 'unordered',
@@ -965,6 +1055,7 @@ export const useOutlineStore = defineStore('outline', () => {
               children: [
                 {
                   id: generateId(),
+                  kind: ITEM_KIND.ITEM,
                   text: 'Ctrl/Cmd + Z/Y for undo/redo',
                   collapsed: false,
                   childrenType: 'ordered',
@@ -974,6 +1065,7 @@ export const useOutlineStore = defineStore('outline', () => {
                 },
                 {
                   id: generateId(),
+                  kind: ITEM_KIND.ITEM,
                   text: 'Ctrl/Cmd + B to toggle sidebar',
                   collapsed: false,
                   childrenType: 'ordered',
@@ -983,6 +1075,7 @@ export const useOutlineStore = defineStore('outline', () => {
                 },
                 {
                   id: generateId(),
+                  kind: ITEM_KIND.ITEM,
                   text: 'Tab/Shift+Tab for navigation',
                   collapsed: false,
                   childrenType: 'ordered',
@@ -994,6 +1087,7 @@ export const useOutlineStore = defineStore('outline', () => {
             },
             {
               id: generateId(),
+              kind: ITEM_KIND.ITEM,
               text: 'Bulk operations and customization',
               collapsed: false,
               childrenType: 'unordered',
@@ -1002,6 +1096,7 @@ export const useOutlineStore = defineStore('outline', () => {
               children: [
                 {
                   id: generateId(),
+                  kind: ITEM_KIND.ITEM,
                   text: 'Collapse/expand all items or notes at once',
                   collapsed: false,
                   childrenType: 'ordered',
@@ -1011,6 +1106,7 @@ export const useOutlineStore = defineStore('outline', () => {
                 },
                 {
                   id: generateId(),
+                  kind: ITEM_KIND.ITEM,
                   text: 'Customize font size, indentation, and display options per project',
                   collapsed: false,
                   childrenType: 'ordered',
@@ -1024,6 +1120,7 @@ export const useOutlineStore = defineStore('outline', () => {
         },
         {
           id: generateId(),
+          kind: ITEM_KIND.ITEM,
           text: 'Next Steps',
           collapsed: false,
           childrenType: 'ordered',
@@ -1150,6 +1247,9 @@ export const useOutlineStore = defineStore('outline', () => {
 
           function migrateItems(items) {
             items.forEach((item) => {
+              if (!item.kind) {
+                item.kind = ITEM_KIND.ITEM
+              }
               if (item.type && !item.childrenType) {
                 item.childrenType = 'ordered'
                 delete item.type
@@ -1213,7 +1313,9 @@ export const useOutlineStore = defineStore('outline', () => {
     
     function countItems(items) {
       items.forEach(item => {
-        itemCount++
+        if (!isDividerItem(item)) {
+          itemCount++
+        }
         noteCount += (item.shortNotes?.length || 0) + (item.longNotes?.length || 0)
         if (item.children) {
           countItems(item.children)
@@ -1361,6 +1463,8 @@ export const useOutlineStore = defineStore('outline', () => {
     renameProject,
     selectProject,
     addRootListItem,
+    addRootListItemAfter,
+    addRootDivider,
     updateListItem,
     addChildItem,
     deleteListItem,

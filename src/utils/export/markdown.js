@@ -5,14 +5,25 @@ export function exportAsMarkdown(project) {
 
   function processItems(items, level = 0, listType = 'unordered') {
     let result = ''
+    let orderedCounter = 0
 
-    items.forEach((item, index) => {
+    items.forEach((item) => {
       const indent = '    '.repeat(level)
+      const kind = item.kind || 'item'
+
+      if (kind === 'divider') {
+        if (level === 0) {
+          result += '\n---\n\n'
+          orderedCounter = 0
+        }
+        return
+      }
 
       // Generate list marker
       let marker
       if (listType === 'ordered') {
-        marker = `${index + 1}. `
+        orderedCounter += 1
+        marker = `${orderedCounter}. `
       } else {
         marker = '- '
       }

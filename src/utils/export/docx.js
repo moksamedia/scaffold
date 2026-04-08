@@ -31,6 +31,8 @@ export async function exportAsDocx(project) {
   }
 
   const maxDepth = getMaxDepth(project.lists)
+  const rootDividerCount = project.lists.filter((item) => (item.kind || 'item') === 'divider').length
+  const orderedRootSections = rootDividerCount + 1
 
   // Generate bullet list levels dynamically
   function generateBulletLevels(
@@ -90,6 +92,11 @@ export async function exportAsDocx(project) {
     return levels
   }
 
+  const orderedSectionNumberingConfigs = Array.from({ length: orderedRootSections }, (_, index) => ({
+    reference: `ordered-list-${index}`,
+    levels: generateOrderedLevels(maxDepth),
+  }))
+
   const doc = new Document({
     numbering: {
       config: [
@@ -97,10 +104,7 @@ export async function exportAsDocx(project) {
           reference: 'bullet-list',
           levels: generateBulletLevels(maxDepth),
         },
-        {
-          reference: 'ordered-list',
-          levels: generateOrderedLevels(maxDepth),
-        },
+        ...orderedSectionNumberingConfigs,
       ],
     },
     sections: [
@@ -122,9 +126,24 @@ export async function exportAsDocx(project) {
 
   async function processItemsForDocx(items, level = 0, listType = 'unordered') {
     const paragraphs = []
+    let orderedListSection = 0
 
     for (let index = 0; index < items.length; index++) {
       const item = items[index]
+      const kind = item.kind || 'item'
+
+      if (kind === 'divider') {
+        if (level === 0) {
+          orderedListSection += 1
+          paragraphs.push(
+            new Paragraph({
+              text: '────────────────────',
+              spacing: { before: 240, after: 240 },
+            }),
+          )
+        }
+        continue
+      }
 
       // Create main item paragraph
       const textRuns = [new TextRun(item.text || 'Untitled')]
@@ -139,10 +158,17 @@ export async function exportAsDocx(project) {
       const paragraph = new Paragraph({
         children: textRuns,
         style: 'List Paragraph',
-        numbering: {
-          reference: listType === 'ordered' ? 'ordered-list' : 'bullet-list',
-          level: level, // Use actual level - no artificial limit
-        },
+        ...(listType === 'ordered' || listType === 'unordered'
+          ? {
+              numbering: {
+                reference:
+                  listType === 'ordered'
+                    ? `ordered-list-${level === 0 ? orderedListSection : 0}`
+                    : 'bullet-list',
+                level: level, // Use actual level - no artificial limit
+              },
+            }
+          : {}),
       })
 
       paragraphs.push(paragraph)

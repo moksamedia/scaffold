@@ -1,6 +1,31 @@
 <template>
   <div class="outline-item" :class="{ 'is-root': isRoot }" :data-item-id="item.id">
-    <div class="item-content" :style="{ fontSize: scaledUiFontSize + 'px' }">
+    <div v-if="isDivider" class="root-divider-block">
+      <div class="root-divider-line" />
+      <div class="item-controls-right">
+        <q-btn round dense flat size="xs" icon="add" @click="addSibling">
+          <q-tooltip>Add Item After Divider</q-tooltip>
+        </q-btn>
+        <q-btn round dense flat size="xs" icon="more_vert">
+          <q-menu>
+            <q-list dense>
+              <q-item clickable v-close-popup @click="moveUp" :disable="positionIndex === 0">
+                <q-item-section>Move Up</q-item-section>
+              </q-item>
+              <q-item clickable v-close-popup @click="moveDown">
+                <q-item-section>Move Down</q-item-section>
+              </q-item>
+              <q-separator />
+              <q-item clickable v-close-popup @click="deleteItem">
+                <q-item-section class="text-negative">Delete Divider</q-item-section>
+              </q-item>
+            </q-list>
+          </q-menu>
+        </q-btn>
+      </div>
+    </div>
+
+    <div v-else class="item-content" :style="{ fontSize: scaledUiFontSize + 'px' }">
       <div class="item-main">
         <div class="item-controls-left">
           <q-btn
@@ -17,8 +42,8 @@
         </div>
 
         <div class="item-text-container">
-          <div class="item-prefix ordered" v-if="listType === 'ordered'">{{ index + 1 }}.</div>
-          <div class="item-prefix unordered" v-else>•</div>
+          <div class="item-prefix ordered" v-if="listType === 'ordered' && index >= 0">{{ index + 1 }}.</div>
+          <div class="item-prefix unordered" v-else-if="index >= 0">•</div>
 
           <div v-if="!isEditing" class="item-text-display" @click="startEditing">
             <template v-if="item.text">
@@ -117,7 +142,7 @@
                   </q-item-section>
                 </q-item>
                 <q-separator />
-                <q-item clickable v-close-popup @click="moveUp" :disable="index === 0">
+                <q-item clickable v-close-popup @click="moveUp" :disable="positionIndex === 0">
                   <q-item-section>Move Up</q-item-section>
                 </q-item>
                 <q-item clickable v-close-popup @click="moveDown">
@@ -326,6 +351,7 @@ const props = defineProps({
 
 const store = useOutlineStore()
 const {
+  currentProject,
   fontSize,
   fontScale,
   indentSize,
@@ -347,6 +373,12 @@ const showLongNoteDialog = ref(false)
 const noteText = ref('')
 const editingNote = ref(null)
 const isEditing = computed(() => currentlyEditingId.value === props.item.id)
+const isDivider = computed(() => props.item.kind === 'divider')
+const positionIndex = computed(() => {
+  if (!props.isRoot) return props.index
+  const rootItems = currentProject.value?.lists || []
+  return rootItems.findIndex((entry) => entry.id === props.item.id)
+})
 const longNoteItemTitle = computed(() => (props.item.text || 'Untitled Item').trim() || 'Untitled Item')
 const longNoteEditor = ref(null)
 
@@ -380,18 +412,22 @@ watch(noteEditorFontScale, (value) => {
 })
 
 function toggleCollapse() {
+  if (isDivider.value) return
   store.updateListItem(props.item.id, { collapsed: !props.item.collapsed })
 }
 
 function toggleChildrenListType() {
+  if (isDivider.value) return
   store.toggleChildrenListType(props.item.id)
 }
 
 function updateText(value) {
+  if (isDivider.value) return
   store.updateListItem(props.item.id, { text: value })
 }
 
 function startEditing() {
+  if (isDivider.value) return
   store.setEditingItem(props.item.id)
 }
 
@@ -413,12 +449,16 @@ function handleShiftTab() {
 }
 
 function addChild() {
+  if (isDivider.value) return
   store.addChildItem(props.item.id)
 }
 
 function addSibling() {
   if (props.isRoot) {
-    store.addRootListItem()
+    const newItem = store.addRootListItemAfter(props.item.id)
+    if (newItem) {
+      store.setEditingItem(newItem.id)
+    }
   } else {
     store.addChildItem(props.item.parentId)
   }
@@ -445,6 +485,7 @@ function deleteItem() {
 }
 
 function addShortNote() {
+  if (isDivider.value) return
   editingNote.value = null
   noteText.value = ''
   showShortNoteDialog.value = true
@@ -474,6 +515,7 @@ function deleteShortNote(noteId) {
 }
 
 function addLongNote() {
+  if (isDivider.value) return
   editingNote.value = null
   noteText.value = ''
   showLongNoteDialog.value = true
@@ -725,6 +767,19 @@ function handleLongNotePaste(event) {
 <style scoped>
 .outline-item {
   margin-bottom: 4px;
+}
+
+.root-divider-block {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 4px;
+}
+
+.root-divider-line {
+  flex: 1;
+  border-top: 2px solid #b0bec5;
+  margin: 0 4px;
 }
 
 .item-content {

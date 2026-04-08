@@ -9,6 +9,7 @@ A powerful hierarchical outline and note-taking application built with Vue 3 and
 - **Multiple Projects**: Create and manage multiple independent outline projects
 - **Infinite Nesting**: Create hierarchical outlines with unlimited depth
 - **Flexible List Types**: Toggle between ordered (1, 2, 3) and unordered (•) lists at any level
+- **Root Divider Sections**: Insert root-only divider rows to split sections and restart ordered numbering
 - **Rich Note-Taking**: Add short inline notes and long rich-text notes with full formatting
 - **Smart Navigation**: Keyboard shortcuts for efficient outline editing
 - **Undo/Redo**: Full history with 50-item undo stack
@@ -116,6 +117,7 @@ A powerful hierarchical outline and note-taking application built with Vue 3 and
 - Converts rich text to Markdown syntax
 - Includes inline short notes and blockquoted long notes
 - Proper line break handling within blockquotes
+- Emits `---` divider markers between root sections and resets ordered numbering after each divider
 
 #### Word Document Export
 
@@ -123,6 +125,7 @@ A powerful hierarchical outline and note-taking application built with Vue 3 and
 - Applies Word styles: List Paragraph, Comment, Block Quotation
 - Preserves paragraph structure and line breaks
 - Configurable indentation for professional documents
+- Renders root dividers as separator paragraphs and restarts root ordered numbering by section
 
 #### JSON Export/Import
 
@@ -131,6 +134,7 @@ A powerful hierarchical outline and note-taking application built with Vue 3 and
 - **Import Validation**: Schema validation with detailed error reporting
 - **Conflict Resolution**: Automatically handles duplicate project names
 - **Format Versioning**: Future-proof with version compatibility checking
+- **Divider Persistence**: Preserves root entry `kind` (`item` or `divider`) and defaults missing values to `item`
 
 ### Customization
 
