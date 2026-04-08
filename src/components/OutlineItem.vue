@@ -145,7 +145,11 @@
         :style="{ marginLeft: 64 - 30 + scaledUiFontSize + 'px' /* a hack to align with oultline text */ }"
       >
         <div v-for="note in item.longNotes" :key="note.id" v-show="!note.hidden" class="long-note">
-          <div class="long-note-header" @click="toggleLongNote(note.id)">
+          <div
+            class="long-note-header"
+            @click="toggleLongNote(note.id)"
+            @dblclick.stop="editLongNote(note)"
+          >
             <q-btn
               round
               dense
@@ -154,7 +158,7 @@
               :icon="note.collapsed ? 'chevron_right' : 'expand_more'"
               @click.stop="toggleLongNote(note.id)"
             />
-            <span v-if="note.collapsed" class="long-note-preview">
+            <span v-if="note.collapsed" class="long-note-preview" @dblclick.stop="editLongNote(note)">
               <span
                 v-for="(run, runIndex) in splitScriptRuns(stripHtml(note.text))"
                 :key="`preview-${note.id}-run-${runIndex}`"
@@ -168,7 +172,7 @@
             <q-btn round dense flat size="xs" icon="edit" @click.stop="editLongNote(note)" />
             <q-btn round dense flat size="xs" icon="close" @click.stop="deleteLongNote(note.id)" />
           </div>
-          <div v-if="!note.collapsed" class="long-note-content">
+          <div v-if="!note.collapsed" class="long-note-content" @dblclick.stop="editLongNote(note)">
             <div v-html="formatTextWithTypography(note.text)"></div>
           </div>
         </div>
@@ -223,7 +227,9 @@
       <q-card>
         <div class="long-note-dialog-wrap">
           <q-card-section class="row items-center">
-            <div class="text-h6">{{ editingNote ? 'Edit' : 'Add' }} Long Note</div>
+            <div class="text-h6 long-note-dialog-title">
+              {{ editingNote ? 'Edit Long Note' : 'Add Long Note' }} - {{ longNoteItemTitle }}
+            </div>
             <q-space />
             <div class="row items-center q-gutter-xs q-mr-sm">
               <q-btn
@@ -341,6 +347,7 @@ const showLongNoteDialog = ref(false)
 const noteText = ref('')
 const editingNote = ref(null)
 const isEditing = computed(() => currentlyEditingId.value === props.item.id)
+const longNoteItemTitle = computed(() => (props.item.text || 'Untitled Item').trim() || 'Untitled Item')
 const longNoteEditor = ref(null)
 
 // Autosave state
@@ -874,6 +881,10 @@ function handleLongNotePaste(event) {
 
 .long-note-dialog-wrap :deep(.q-editor__content) {
   padding: 12px;
+}
+
+.long-note-dialog-title {
+  max-width: 60%;
 }
 
 .item-children {
