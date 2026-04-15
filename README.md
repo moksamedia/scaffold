@@ -64,6 +64,9 @@ A powerful hierarchical outline and note-taking application built with Vue 3 and
 - `npm run dev` - Start development server with hot reload
 - `npm run build` - Build for production
 - `npm run build:gh-pages` - Build for GitHub Pages deployment
+- `npm run test` - Run unit and integration tests (Vitest)
+- `npm run test:watch` - Run tests in watch mode
+- `npm run test:coverage` - Run tests with coverage report
 - `npm run lint` - Run ESLint code checking
 - `npm run format` - Format code with Prettier
 
@@ -211,10 +214,13 @@ src/
 ├── stores/              # Pinia stores
 │   └── outline-store.js     # Main application state
 ├── utils/               # Utility modules
-│   └── export/              # Export functionality
-│       ├── markdown.js      # Markdown export
-│       ├── docx.js         # Word document export
-│       └── json.js         # JSON export/import
+│   ├── export/              # Export functionality
+│   │   ├── markdown.js      # Markdown export
+│   │   ├── docx.js         # Word document export
+│   │   └── json.js         # JSON export/import
+│   └── storage/             # Storage abstraction
+│       ├── storage-adapter.js  # Adapter interface (localStorage impl)
+│       └── migration.js     # localStorage→IndexedDB migration state machine
 ├── layouts/             # Application layouts
 └── pages/               # Route pages
 ```

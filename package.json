@@ -9,7 +9,9 @@
   "scripts": {
     "lint": "eslint -c ./eslint.config.js \"./src*/**/*.{js,cjs,mjs,vue}\"",
     "format": "prettier --write \"**/*.{js,vue,scss,html,md,json}\" --ignore-path .gitignore",
-    "test": "echo \"No test specified\" && exit 0",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
     "dev": "quasar dev",
     "build": "quasar build",
     "build:gh-pages": "GITHUB_PAGES=true quasar build",
@@ -27,16 +29,19 @@
   },
   "devDependencies": {
     "@eslint/js": "^9.14.0",
+    "@pinia/testing": "^1.0.3",
     "@quasar/app-vite": "^2.1.0",
     "@vue/eslint-config-prettier": "^10.1.0",
     "autoprefixer": "^10.4.2",
     "eslint": "^9.14.0",
     "eslint-plugin-vue": "^9.30.0",
     "globals": "^15.12.0",
+    "happy-dom": "^20.9.0",
     "postcss": "^8.4.14",
     "prettier": "^3.3.3",
     "vite-plugin-checker": "^0.9.0",
-    "vite-plugin-node-polyfills": "^0.24.0"
+    "vite-plugin-node-polyfills": "^0.24.0",
+    "vitest": "^4.1.4"
   },
   "engines": {
     "node": "^28 || ^26 || ^24 || ^22 || ^20 || ^18",

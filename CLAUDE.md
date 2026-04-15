@@ -56,6 +56,24 @@ Scaffold is a Quasar Vue 3 application for creating and managing hierarchical ou
 - `docx.js` - DOCX export with dynamic nesting levels, Word styles, and paragraph structure preservation
 - `json.js` - JSON export/import with schema validation, conflict resolution, format versioning, and root-entry `kind` persistence (`item`/`divider`)
 
+### `/src/utils/storage/`
+- `storage-adapter.js` - Async storage adapter interface with localStorage implementation; designed for future IndexedDB provider parity
+- `migration.js` - State machine for localStorage → IndexedDB migration (not_started → in_progress → completed/failed) with idempotency and verification
+
+### `/tests/`
+- Test runner: Vitest with happy-dom environment
+- `tests/setup.js` - Global setup (storage clear, anchor click stub)
+- `tests/fixtures/projects.js` - Canonical project/item/divider factory helpers
+- `tests/json-export-import.test.js` - JSON export/import validation, normalization, and roundtrip
+- `tests/project-tab-lock.test.js` - Tab lock freshness, ownership, and edge cases
+- `tests/outline-store.test.js` - Pinia store integration: CRUD, outline ops, undo/redo, persistence, legacy migration
+- `tests/markdown-export.test.js` - Markdown generation: numbering, nesting, dividers, notes
+- `tests/docx-export.test.js` - DOCX generation structural smoke tests
+- `tests/version-storage.test.js` - Version serialization/parsing with LZ compression
+- `tests/version-smart-trim.test.js` - Smart trim retention bands and idempotency
+- `tests/storage-adapter.test.js` - localStorage adapter contract tests
+- `tests/migration.test.js` - Migration state machine: success, idempotency, partial failure, corrupt data, retry
+
 ### Key Technical Patterns
 - Reactive Vue 3 Composition API throughout
 - Pinia for centralized state management
