@@ -14,6 +14,9 @@
           <q-btn round dense flat icon="download" size="sm" @click="exportAllProjects">
             <q-tooltip>Export All Projects</q-tooltip>
           </q-btn>
+          <q-btn round dense flat icon="upload" size="sm" @click="handleImportJSON">
+            <q-tooltip>Import JSON</q-tooltip>
+          </q-btn>
           <q-btn round dense flat icon="add" size="sm" @click="showNewProjectDialog = true">
             <q-tooltip>New Project</q-tooltip>
           </q-btn>
@@ -412,6 +415,33 @@ function updateShowIndentGuides(value) {
 
 function exportAllProjects() {
   store.exportAllAsJSON()
+}
+
+async function handleImportJSON() {
+  try {
+    const result = await store.importFromJSONFile()
+
+    let message = `Successfully imported ${result.imported} project(s)`
+    if (result.warnings && result.warnings.length > 0) {
+      message += `\n\nWarnings: ${result.warnings.join(', ')}`
+    }
+
+    $q.notify({
+      type: 'positive',
+      message,
+      position: 'top',
+      timeout: 4000,
+    })
+    refreshProjectLockState()
+  } catch (error) {
+    if (error?.message === 'No file selected') return
+    $q.notify({
+      type: 'negative',
+      message: `Import failed: ${error.message}`,
+      position: 'top',
+      timeout: 5000,
+    })
+  }
 }
 
 function toggleDrawer() {

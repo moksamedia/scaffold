@@ -84,9 +84,6 @@
             </q-list>
           </q-menu>
         </q-btn>
-        <q-btn round dense flat icon="upload" @click="handleImport">
-          <q-tooltip>Import JSON</q-tooltip>
-        </q-btn>
         <q-btn round dense flat icon="bookmark" color="secondary" @click="showSaveVersionDialog = true">
           <q-tooltip>Save Version</q-tooltip>
         </q-btn>
@@ -205,31 +202,6 @@ function exportAsDocx() {
 
 function exportAsJSON() {
   store.exportAsJSON()
-}
-
-async function handleImport() {
-  try {
-    const result = await store.importFromJSONFile()
-    
-    let message = `Successfully imported ${result.imported} project(s)`
-    if (result.warnings && result.warnings.length > 0) {
-      message += `\n\nWarnings: ${result.warnings.join(', ')}`
-    }
-    
-    $q.notify({
-      type: 'positive',
-      message,
-      position: 'top',
-      timeout: 4000
-    })
-  } catch (error) {
-    $q.notify({
-      type: 'negative', 
-      message: `Import failed: ${error.message}`,
-      position: 'top',
-      timeout: 5000
-    })
-  }
 }
 
 function collapseAllItems() {
