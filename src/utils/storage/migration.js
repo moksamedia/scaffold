@@ -111,7 +111,7 @@ export async function runMigration(sourceAdapter, targetAdapter) {
   let verifyProjects
   try {
     verifyProjects = await targetAdapter.loadProjects()
-  } catch (err) {
+  } catch {
     await setMigrationStatus(targetAdapter, MIGRATION_STATES.FAILED, 'Verification read failed')
     return {
       status: MIGRATION_STATES.FAILED,
