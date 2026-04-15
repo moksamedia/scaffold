@@ -31,8 +31,8 @@ jobs:
       - name: Lint
         run: npm run lint
 
-      - name: Run tests
-        run: npm test
+      - name: Run tests with coverage thresholds
+        run: npm run test:coverage
 
       - name: Build for GitHub Pages
         run: npm run build:gh-pages

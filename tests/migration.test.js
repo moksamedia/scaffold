@@ -57,6 +57,8 @@ function createMemoryAdapter(opts = {}) {
   }
 }
 
+// Migration tests prioritize data safety guarantees:
+// idempotency, non-destructive behavior, and explicit failure states.
 describe('getMigrationStatus', () => {
   it('returns not_started when no meta exists', async () => {
     const adapter = createMemoryAdapter()

@@ -12,6 +12,8 @@ import {
   makeExportData,
 } from './fixtures/projects.js'
 
+// These tests treat JSON as a data contract, not just a utility output:
+// if this breaks, backups/imports/migration safety are at risk.
 describe('exportAsJSON', () => {
   it('produces valid envelope with formatVersion and application', () => {
     const project = makeProject({ lists: [makeItem()] })
@@ -213,6 +215,7 @@ describe('importFromJSON', () => {
   })
 
   it('assigns parentId during normalization', () => {
+    // Parent linkage is required by store operations like outdent/move.
     const child = makeItem({ id: 'c1', text: 'child' })
     const parent = makeItem({ id: 'p1', text: 'parent', children: [child] })
     const data = makeExportData([makeProject({ lists: [parent] })])

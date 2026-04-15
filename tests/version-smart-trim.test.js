@@ -3,6 +3,7 @@ import {
   listVersionEntriesForProject,
   selectIntervalVersionKeysToDelete,
   applySmartTrimForProject,
+  applySmartTrimForAllProjects,
 } from 'src/utils/version-smart-trim.js'
 
 const MS_DAY = 86400000
@@ -21,6 +22,7 @@ function seedVersion(projectId, versionId, timestamp, trigger = 'auto-interval')
   return key
 }
 
+// Smart trim is quota-protection logic; tests focus on retention-window invariants.
 describe('listVersionEntriesForProject', () => {
   it('returns empty array when no versions exist', () => {
     expect(listVersionEntriesForProject('proj-1')).toEqual([])
@@ -164,5 +166,39 @@ describe('applySmartTrimForProject', () => {
 
     applySmartTrimForProject('proj-1', now)
     expect(localStorage.getItem(manualKey)).not.toBeNull()
+  })
+})
+
+describe('applySmartTrimForAllProjects', () => {
+  it('no-ops when outline-projects key is missing', () => {
+    expect(() => applySmartTrimForAllProjects(Date.now())).not.toThrow()
+  })
+
+  it('no-ops when outline-projects is malformed JSON', () => {
+    localStorage.setItem('outline-projects', 'NOT_JSON')
+    expect(() => applySmartTrimForAllProjects(Date.now())).not.toThrow()
+  })
+
+  it('no-ops when outline-projects is not an array', () => {
+    localStorage.setItem('outline-projects', JSON.stringify({ id: 'bad' }))
+    expect(() => applySmartTrimForAllProjects(Date.now())).not.toThrow()
+  })
+
+  it('trims versions only for projects listed in outline-projects', () => {
+    const now = Date.now()
+    localStorage.setItem(
+      'outline-projects',
+      JSON.stringify([{ id: 'proj-a' }, { id: 'proj-b' }, { noId: true }]),
+    )
+    const oldA = seedVersion('proj-a', 'old', now - 16 * MS_DAY)
+    const oldB = seedVersion('proj-b', 'old', now - 16 * MS_DAY)
+    const oldOther = seedVersion('proj-other', 'old', now - 16 * MS_DAY)
+
+    applySmartTrimForAllProjects(now)
+
+    expect(localStorage.getItem(oldA)).toBeNull()
+    expect(localStorage.getItem(oldB)).toBeNull()
+    // Project not in outline-projects should not be touched.
+    expect(localStorage.getItem(oldOther)).not.toBeNull()
   })
 })

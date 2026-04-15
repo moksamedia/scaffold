@@ -14,6 +14,8 @@ function getStore() {
   return useOutlineStore()
 }
 
+// This suite intentionally behaves like app startup/runtime (integration-ish),
+// because many regressions here come from feature interactions, not single functions.
 describe('Outline Store', () => {
   beforeEach(() => {
     setActivePinia(createPinia())
@@ -456,6 +458,24 @@ describe('Outline Store', () => {
       const store = getStore()
       expect(store.currentProjectId).toBe('exists')
     })
+
+    it('sets currentProjectId to null if saved project and all fallbacks are locked', () => {
+      const p1 = makeProject({ id: 'p1' })
+      const p2 = makeProject({ id: 'p2' })
+      seedStore([p1, p2])
+      localStorage.setItem('outline-current-project', 'p1')
+      localStorage.setItem(
+        'scaffold-project-lock-p1',
+        JSON.stringify({ holderTabId: 'other-tab-1', heartbeatAt: Date.now() }),
+      )
+      localStorage.setItem(
+        'scaffold-project-lock-p2',
+        JSON.stringify({ holderTabId: 'other-tab-2', heartbeatAt: Date.now() }),
+      )
+
+      const store = getStore()
+      expect(store.currentProjectId).toBeNull()
+    })
   })
 
   // ─── Navigation helpers ──────────────────────────────────────
@@ -530,6 +550,143 @@ describe('Outline Store', () => {
       store.setNonTibetanFontSize(20)
       expect(store.nonTibetanFontSize).toBe(20)
       expect(store.fontSize).toBe(20)
+    })
+  })
+
+  describe('import and versioning branches', () => {
+    it('importFromJSONFile rejects when no file is selected', async () => {
+      const store = getStore()
+      const originalCreate = document.createElement.bind(document)
+      vi.spyOn(document, 'createElement').mockImplementation((tagName, options) => {
+        if (tagName === 'input') {
+          return {
+            type: '',
+            accept: '',
+            onchange: null,
+            click() {
+              this.onchange?.({ target: { files: [] } })
+            },
+          }
+        }
+        return originalCreate(tagName, options)
+      })
+
+      await expect(store.importFromJSONFile()).rejects.toThrow('No file selected')
+    })
+
+    it('importFromJSONFile imports project and resolves collisions', async () => {
+      // We mock the file picker path so the test stays deterministic and browserless.
+      const existing = makeProject({ id: 'dup', name: 'Existing' })
+      seedStore([existing])
+      const store = getStore()
+      const originalCreate = document.createElement.bind(document)
+      const payload = {
+        formatVersion: '1.0',
+        exportedAt: new Date().toISOString(),
+        application: 'Scaffold',
+        projects: [
+          {
+            id: 'dup',
+            name: 'Imported',
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
+            items: [],
+          },
+        ],
+      }
+
+      vi.spyOn(document, 'createElement').mockImplementation((tagName, options) => {
+        if (tagName === 'input') {
+          return {
+            type: '',
+            accept: '',
+            onchange: null,
+            click() {
+              this.onchange?.({
+                target: {
+                  files: [{ text: async () => JSON.stringify(payload) }],
+                },
+              })
+            },
+          }
+        }
+        return originalCreate(tagName, options)
+      })
+
+      const result = await store.importFromJSONFile()
+      expect(result.success).toBe(true)
+      expect(result.imported).toBe(1)
+      expect(store.projects).toHaveLength(2)
+      expect(store.projects[1].name).toContain('(Imported)')
+      expect(store.projects[1].id).not.toBe('dup')
+    })
+
+    it('saveVersion skips duplicates compared to latest version', () => {
+      seedStore([makeProject({ id: 'p1', lists: [makeItem({ id: 'a', text: 'A' })] })])
+      const store = getStore()
+
+      const firstId = store.saveVersion('Initial')
+      expect(firstId).toBeTruthy()
+      const secondId = store.saveVersion('Duplicate attempt')
+      expect(secondId).toBeNull()
+    })
+
+    it('saveVersion duplicate check ignores malformed existing version entries', () => {
+      seedStore([makeProject({ id: 'p1' })])
+      const store = getStore()
+      localStorage.setItem('scaffold-version-p1-bad', 'NOT_JSON')
+
+      const versionId = store.saveVersion('After malformed latest')
+      expect(versionId).toBeTruthy()
+    })
+
+    it('restoreVersion returns null for invalid payloads', () => {
+      const store = getStore()
+      expect(store.restoreVersion(null)).toBeNull()
+      expect(store.restoreVersion({})).toBeNull()
+      expect(store.restoreVersion({ data: { invalid: true } })).toBeNull()
+    })
+
+    it('auto-start versioning creates a version when configured', () => {
+      vi.useFakeTimers()
+      localStorage.setItem(
+        'scaffold-program-settings',
+        JSON.stringify({ autoVersioning: ['start'] }),
+      )
+      seedStore([makeProject({ id: 'p1' })])
+      getStore()
+
+      const versionKeys = []
+      for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i)
+        if (key?.startsWith('scaffold-version-p1-')) versionKeys.push(key)
+      }
+      expect(versionKeys.length).toBeGreaterThanOrEqual(1)
+      vi.useRealTimers()
+    })
+
+    it('auto-close and interval versioning paths execute without error', () => {
+      // Timer control keeps this branch test fast and non-flaky.
+      vi.useFakeTimers()
+      localStorage.setItem(
+        'scaffold-program-settings',
+        JSON.stringify({ autoVersioning: ['close', 'interval'], versioningInterval: 0.001 }),
+      )
+      seedStore([makeProject({ id: 'p1' })])
+      getStore()
+
+      // setupAutoVersioning is deferred by setTimeout in store init.
+      vi.runOnlyPendingTimers()
+      window.dispatchEvent(new Event('beforeunload'))
+      vi.advanceTimersByTime(1000)
+
+      const versionKeys = []
+      for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i)
+        if (key?.startsWith('scaffold-version-p1-')) versionKeys.push(key)
+      }
+      expect(versionKeys.length).toBeGreaterThanOrEqual(1)
+      vi.useRealTimers()
     })
   })
 })
