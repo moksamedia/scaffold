@@ -1,4 +1,5 @@
 import { parseVersionStorageValue } from 'src/utils/version-storage.js'
+import { getStorageAdapter } from 'src/utils/storage/index.js'
 
 const MS_DAY = 86400000
 const MS_48H = 48 * 60 * 60 * 1000
@@ -8,18 +9,18 @@ const MS_14D = 14 * MS_DAY
 
 /**
  * @param {string} projectId
- * @returns {{ key: string, version: object }[]}
+ * @param {import('../storage/storage-adapter.js').StorageAdapter} [adapter]
+ * @returns {Promise<{ key: string, version: object }[]>}
  */
-export function listVersionEntriesForProject(projectId) {
+export async function listVersionEntriesForProject(projectId, adapter) {
+  const a = adapter || getStorageAdapter()
   const prefix = `scaffold-version-${projectId}-`
+  const raw = await a.getMetaEntries(prefix)
   const entries = []
-  for (let i = 0; i < localStorage.length; i++) {
-    const key = localStorage.key(i)
-    if (!key || !key.startsWith(prefix)) continue
-    const raw = localStorage.getItem(key)
-    if (raw == null) continue
+  for (const { key, value } of raw) {
+    if (value == null) continue
     try {
-      const version = parseVersionStorageValue(raw)
+      const version = parseVersionStorageValue(value)
       if (version) entries.push({ key, version })
     } catch {
       // skip corrupt entries
@@ -85,27 +86,29 @@ export function selectIntervalVersionKeysToDelete(entries, nowMs) {
 /**
  * @param {string} projectId
  * @param {number} [nowMs]
+ * @param {import('../storage/storage-adapter.js').StorageAdapter} [adapter]
  */
-export function applySmartTrimForProject(projectId, nowMs = Date.now()) {
-  const entries = listVersionEntriesForProject(projectId)
+export async function applySmartTrimForProject(projectId, nowMs = Date.now(), adapter) {
+  const a = adapter || getStorageAdapter()
+  const entries = await listVersionEntriesForProject(projectId, a)
   const keys = selectIntervalVersionKeysToDelete(entries, nowMs)
   for (const key of keys) {
-    localStorage.removeItem(key)
+    await a.deleteMeta(key)
   }
 }
 
 /**
- * Trim interval versions for every project in outline-projects.
+ * Trim interval versions for every project.
  * @param {number} [nowMs]
+ * @param {import('../storage/storage-adapter.js').StorageAdapter} [adapter]
  */
-export function applySmartTrimForAllProjects(nowMs = Date.now()) {
+export async function applySmartTrimForAllProjects(nowMs = Date.now(), adapter) {
   try {
-    const raw = localStorage.getItem('outline-projects')
-    if (!raw) return
-    const projects = JSON.parse(raw)
+    const a = adapter || getStorageAdapter()
+    const projects = await a.loadProjects()
     if (!Array.isArray(projects)) return
     for (const p of projects) {
-      if (p?.id) applySmartTrimForProject(p.id, nowMs)
+      if (p?.id) await applySmartTrimForProject(p.id, nowMs, a)
     }
   } catch {
     // ignore

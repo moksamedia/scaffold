@@ -1,14 +1,15 @@
-import { describe, it, expect, beforeEach } from 'vitest'
+import { describe, it, expect } from 'vitest'
 import {
   listVersionEntriesForProject,
   selectIntervalVersionKeysToDelete,
   applySmartTrimForProject,
   applySmartTrimForAllProjects,
 } from 'src/utils/version-smart-trim.js'
+import { getStorageAdapter } from 'src/utils/storage/index.js'
 
 const MS_DAY = 86400000
 
-function seedVersion(projectId, versionId, timestamp, trigger = 'auto-interval') {
+async function seedVersion(projectId, versionId, timestamp, trigger = 'auto-interval') {
   const key = `scaffold-version-${projectId}-${versionId}`
   const data = {
     id: versionId,
@@ -18,31 +19,35 @@ function seedVersion(projectId, versionId, timestamp, trigger = 'auto-interval')
     stats: { items: 1, notes: 0 },
     data: {},
   }
-  localStorage.setItem(key, JSON.stringify(data))
+  await getStorageAdapter().setMeta(key, JSON.stringify(data))
   return key
 }
 
-// Smart trim is quota-protection logic; tests focus on retention-window invariants.
+async function metaExists(key) {
+  const val = await getStorageAdapter().getMeta(key)
+  return val !== null
+}
+
 describe('listVersionEntriesForProject', () => {
-  it('returns empty array when no versions exist', () => {
-    expect(listVersionEntriesForProject('proj-1')).toEqual([])
+  it('returns empty array when no versions exist', async () => {
+    expect(await listVersionEntriesForProject('proj-1')).toEqual([])
   })
 
-  it('lists all versions for a given project', () => {
-    seedVersion('proj-1', 'v1', 1000)
-    seedVersion('proj-1', 'v2', 2000)
-    seedVersion('proj-2', 'v3', 3000)
+  it('lists all versions for a given project', async () => {
+    await seedVersion('proj-1', 'v1', 1000)
+    await seedVersion('proj-1', 'v2', 2000)
+    await seedVersion('proj-2', 'v3', 3000)
 
-    const entries = listVersionEntriesForProject('proj-1')
+    const entries = await listVersionEntriesForProject('proj-1')
     expect(entries).toHaveLength(2)
     expect(entries.every((e) => e.version.projectId === 'proj-1')).toBe(true)
   })
 
-  it('skips corrupt entries', () => {
-    seedVersion('proj-1', 'v1', 1000)
-    localStorage.setItem('scaffold-version-proj-1-bad', 'NOT JSON')
+  it('skips corrupt entries', async () => {
+    await seedVersion('proj-1', 'v1', 1000)
+    await getStorageAdapter().setMeta('scaffold-version-proj-1-bad', 'NOT JSON')
 
-    const entries = listVersionEntriesForProject('proj-1')
+    const entries = await listVersionEntriesForProject('proj-1')
     expect(entries).toHaveLength(1)
   })
 })
@@ -78,13 +83,9 @@ describe('selectIntervalVersionKeysToDelete', () => {
   })
 
   it('keeps most recent auto-interval entry per 48h bucket in 7-14d band', () => {
-    // Two entries in the same 48h bucket (ages differ by a few hours).
-    // The algorithm keeps the most recent per bucket and deletes the rest.
     const MS_48H = 48 * 60 * 60 * 1000
-    // Place both entries at the same age bucket.  age = now - timestamp.
-    // Bucket id = Math.floor(age / MS_48H). Use an age of exactly 8 days.
     const ageBase = 8 * MS_DAY
-    const tsOlder = now - ageBase - 2 * 3600000 // 2 hours deeper into bucket
+    const tsOlder = now - ageBase - 2 * 3600000
     const tsNewer = now - ageBase
 
     const entries = [
@@ -98,11 +99,9 @@ describe('selectIntervalVersionKeysToDelete', () => {
       },
     ]
 
-    // Verify both land in the same bucket
     expect(Math.floor((now - tsOlder) / MS_48H)).toBe(Math.floor((now - tsNewer) / MS_48H))
 
     const result = selectIntervalVersionKeysToDelete(entries, now)
-    // b is more recent in the same bucket so it's kept; a is deleted
     expect(result.has('scaffold-version-p1-a')).toBe(true)
     expect(result.has('scaffold-version-p1-b')).toBe(false)
   })
@@ -137,68 +136,55 @@ describe('selectIntervalVersionKeysToDelete', () => {
 })
 
 describe('applySmartTrimForProject', () => {
-  it('removes keys selected for deletion from localStorage', () => {
+  it('removes keys selected for deletion', async () => {
     const now = Date.now()
-    const oldKey = seedVersion('proj-1', 'old', now - 15 * MS_DAY, 'auto-interval')
+    const oldKey = await seedVersion('proj-1', 'old', now - 15 * MS_DAY, 'auto-interval')
 
-    expect(localStorage.getItem(oldKey)).not.toBeNull()
-    applySmartTrimForProject('proj-1', now)
-    expect(localStorage.getItem(oldKey)).toBeNull()
+    expect(await metaExists(oldKey)).toBe(true)
+    await applySmartTrimForProject('proj-1', now)
+    expect(await metaExists(oldKey)).toBe(false)
   })
 
-  it('is idempotent (second run removes nothing more)', () => {
+  it('is idempotent (second run removes nothing more)', async () => {
     const now = Date.now()
-    seedVersion('proj-1', 'old', now - 15 * MS_DAY, 'auto-interval')
-    seedVersion('proj-1', 'recent', now - MS_DAY, 'auto-interval')
+    await seedVersion('proj-1', 'old', now - 15 * MS_DAY, 'auto-interval')
+    await seedVersion('proj-1', 'recent', now - MS_DAY, 'auto-interval')
 
-    applySmartTrimForProject('proj-1', now)
-    const afterFirst = listVersionEntriesForProject('proj-1')
+    await applySmartTrimForProject('proj-1', now)
+    const afterFirst = await listVersionEntriesForProject('proj-1')
 
-    applySmartTrimForProject('proj-1', now)
-    const afterSecond = listVersionEntriesForProject('proj-1')
+    await applySmartTrimForProject('proj-1', now)
+    const afterSecond = await listVersionEntriesForProject('proj-1')
 
     expect(afterSecond).toHaveLength(afterFirst.length)
   })
 
-  it('preserves manual versions regardless of age', () => {
+  it('preserves manual versions regardless of age', async () => {
     const now = Date.now()
-    const manualKey = seedVersion('proj-1', 'manual-old', now - 30 * MS_DAY, 'manual')
+    const manualKey = await seedVersion('proj-1', 'manual-old', now - 30 * MS_DAY, 'manual')
 
-    applySmartTrimForProject('proj-1', now)
-    expect(localStorage.getItem(manualKey)).not.toBeNull()
+    await applySmartTrimForProject('proj-1', now)
+    expect(await metaExists(manualKey)).toBe(true)
   })
 })
 
 describe('applySmartTrimForAllProjects', () => {
-  it('no-ops when outline-projects key is missing', () => {
-    expect(() => applySmartTrimForAllProjects(Date.now())).not.toThrow()
+  it('no-ops when no projects exist', async () => {
+    await expect(applySmartTrimForAllProjects(Date.now())).resolves.not.toThrow()
   })
 
-  it('no-ops when outline-projects is malformed JSON', () => {
-    localStorage.setItem('outline-projects', 'NOT_JSON')
-    expect(() => applySmartTrimForAllProjects(Date.now())).not.toThrow()
-  })
-
-  it('no-ops when outline-projects is not an array', () => {
-    localStorage.setItem('outline-projects', JSON.stringify({ id: 'bad' }))
-    expect(() => applySmartTrimForAllProjects(Date.now())).not.toThrow()
-  })
-
-  it('trims versions only for projects listed in outline-projects', () => {
+  it('trims versions only for projects in storage', async () => {
     const now = Date.now()
-    localStorage.setItem(
-      'outline-projects',
-      JSON.stringify([{ id: 'proj-a' }, { id: 'proj-b' }, { noId: true }]),
-    )
-    const oldA = seedVersion('proj-a', 'old', now - 16 * MS_DAY)
-    const oldB = seedVersion('proj-b', 'old', now - 16 * MS_DAY)
-    const oldOther = seedVersion('proj-other', 'old', now - 16 * MS_DAY)
+    const adapter = getStorageAdapter()
+    await adapter.saveProjects([{ id: 'proj-a' }, { id: 'proj-b' }])
+    const oldA = await seedVersion('proj-a', 'old', now - 16 * MS_DAY)
+    const oldB = await seedVersion('proj-b', 'old', now - 16 * MS_DAY)
+    const oldOther = await seedVersion('proj-other', 'old', now - 16 * MS_DAY)
 
-    applySmartTrimForAllProjects(now)
+    await applySmartTrimForAllProjects(now)
 
-    expect(localStorage.getItem(oldA)).toBeNull()
-    expect(localStorage.getItem(oldB)).toBeNull()
-    // Project not in outline-projects should not be touched.
-    expect(localStorage.getItem(oldOther)).not.toBeNull()
+    expect(await metaExists(oldA)).toBe(false)
+    expect(await metaExists(oldB)).toBe(false)
+    expect(await metaExists(oldOther)).toBe(true)
   })
 })

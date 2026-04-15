@@ -1,12 +1,18 @@
 import { describe, it, expect, beforeEach } from 'vitest'
-import { createLocalStorageAdapter } from 'src/utils/storage/storage-adapter.js'
+import {
+  createLocalStorageAdapter,
+  createIndexedDbAdapter,
+} from 'src/utils/storage/storage-adapter.js'
 import { makeProject, makeItem } from './fixtures/projects.js'
 
-describe('localStorage adapter', () => {
+/**
+ * Shared contract tests that both adapters must pass.
+ */
+function adapterContractTests(createAdapter) {
   let adapter
 
-  beforeEach(() => {
-    adapter = createLocalStorageAdapter()
+  beforeEach(async () => {
+    adapter = await createAdapter()
   })
 
   it('loadProjects returns empty array when nothing stored', async () => {
@@ -19,7 +25,7 @@ describe('localStorage adapter', () => {
     await adapter.saveProjects(projects)
     const loaded = await adapter.loadProjects()
     expect(loaded).toHaveLength(2)
-    expect(loaded[0].id).toBe('a')
+    expect(loaded.map((p) => p.id).sort()).toEqual(['a', 'b'])
   })
 
   it('getProject returns matching project or null', async () => {
@@ -51,15 +57,54 @@ describe('localStorage adapter', () => {
   })
 
   it('getStorageStats returns used and quota', async () => {
-    localStorage.setItem('test-key', 'test-value')
     const stats = await adapter.getStorageStats()
-    expect(stats.used).toBeGreaterThan(0)
-    expect(stats.quota).toBeGreaterThan(0)
+    expect(typeof stats.used).toBe('number')
+    expect(typeof stats.quota).toBe('number')
   })
 
   it('getMeta / setMeta roundtrips', async () => {
     await adapter.setMeta('test', 'value')
     expect(await adapter.getMeta('test')).toBe('value')
     expect(await adapter.getMeta('missing')).toBeNull()
+  })
+
+  it('deleteMeta removes a key', async () => {
+    await adapter.setMeta('doomed', 'x')
+    expect(await adapter.getMeta('doomed')).toBe('x')
+    await adapter.deleteMeta('doomed')
+    expect(await adapter.getMeta('doomed')).toBeNull()
+  })
+
+  it('deleteMeta is safe for non-existent key', async () => {
+    await adapter.deleteMeta('nope')
+  })
+
+  it('getMetaEntries returns matching entries', async () => {
+    await adapter.setMeta('version-p1-a', 'data-a')
+    await adapter.setMeta('version-p1-b', 'data-b')
+    await adapter.setMeta('version-p2-c', 'data-c')
+    await adapter.setMeta('other-key', 'other')
+
+    const entries = await adapter.getMetaEntries('version-p1-')
+    expect(entries).toHaveLength(2)
+    expect(entries.map((e) => e.key).sort()).toEqual(['version-p1-a', 'version-p1-b'])
+  })
+
+  it('getMetaEntries returns empty array when no match', async () => {
+    const entries = await adapter.getMetaEntries('nonexistent-')
+    expect(entries).toEqual([])
+  })
+}
+
+describe('localStorage adapter', () => {
+  adapterContractTests(() => createLocalStorageAdapter())
+})
+
+describe('IndexedDB adapter', () => {
+  let dbCounter = 0
+
+  adapterContractTests(async () => {
+    const { indexedDB } = await import('fake-indexeddb')
+    return createIndexedDbAdapter(indexedDB)
   })
 })

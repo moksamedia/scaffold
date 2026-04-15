@@ -2,20 +2,23 @@ import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { setActivePinia, createPinia } from 'pinia'
 import { useOutlineStore, DEFAULT_NEW_LIST_ITEM_TEXT } from 'src/stores/outline-store.js'
 import { makeProject, makeItem, makeDivider, makeLegacyProject } from './fixtures/projects.js'
+import { getStorageAdapter } from 'src/utils/storage/index.js'
+
+const META_PREFIX = 'scaffold-meta-'
 
 function seedStore(projectsArray) {
   localStorage.setItem('outline-projects', JSON.stringify(projectsArray))
   if (projectsArray.length > 0) {
-    localStorage.setItem('outline-current-project', projectsArray[0].id)
+    localStorage.setItem(`${META_PREFIX}current-project`, projectsArray[0].id)
   }
 }
 
-function getStore() {
-  return useOutlineStore()
+async function getStore() {
+  const store = useOutlineStore()
+  await store.initPromise
+  return store
 }
 
-// This suite intentionally behaves like app startup/runtime (integration-ish),
-// because many regressions here come from feature interactions, not single functions.
 describe('Outline Store', () => {
   beforeEach(() => {
     setActivePinia(createPinia())
@@ -23,77 +26,77 @@ describe('Outline Store', () => {
 
   // ─── Project CRUD ────────────────────────────────────────────────
   describe('project lifecycle', () => {
-    it('creates an example project when localStorage is empty', () => {
-      const store = getStore()
+    it('creates an example project when storage is empty', async () => {
+      const store = await getStore()
       expect(store.projects.length).toBeGreaterThanOrEqual(1)
       expect(store.currentProjectId).toBeTruthy()
     })
 
-    it('createProject adds a new project with defaults', () => {
-      const store = getStore()
+    it('createProject adds a new project with defaults', async () => {
+      const store = await getStore()
       const before = store.projects.length
-      const project = store.createProject('New')
+      const project = await store.createProject('New')
       expect(store.projects.length).toBe(before + 1)
       expect(project.name).toBe('New')
       expect(project.rootListType).toBe('ordered')
       expect(project.settings.indentSize).toBe(32)
     })
 
-    it('createProject uses program-wide defaults from localStorage', () => {
-      localStorage.setItem(
-        'scaffold-program-settings',
+    it('createProject uses program-wide defaults from storage', async () => {
+      const adapter = getStorageAdapter()
+      await adapter.setMeta(
+        'program-settings',
         JSON.stringify({ defaultListType: 'unordered', defaultIndentSize: 48 }),
       )
-      const store = getStore()
-      const project = store.createProject('Custom')
+      const store = await getStore()
+      const project = await store.createProject('Custom')
       expect(project.rootListType).toBe('unordered')
       expect(project.settings.indentSize).toBe(48)
     })
 
-    it('deleteProject removes the project and updates current', () => {
+    it('deleteProject removes the project and updates current', async () => {
       const p1 = makeProject({ id: 'p1', name: 'One' })
       const p2 = makeProject({ id: 'p2', name: 'Two' })
       seedStore([p1, p2])
-      localStorage.setItem('outline-current-project', 'p1')
-      const store = getStore()
+      localStorage.setItem(`${META_PREFIX}current-project`, 'p1')
+      const store = await getStore()
       store.deleteProject('p1')
 
       expect(store.projects.find((p) => p.id === 'p1')).toBeUndefined()
       expect(store.currentProjectId).toBe('p2')
     })
 
-    it('renameProject updates name and updatedAt', () => {
+    it('renameProject updates name and updatedAt', async () => {
       const p = makeProject({ id: 'p1', name: 'Old' })
       seedStore([p])
-      const store = getStore()
+      const store = await getStore()
       store.renameProject('p1', 'New Name')
 
       expect(store.projects[0].name).toBe('New Name')
     })
 
-    it('selectProject switches current project and syncs settings', () => {
+    it('selectProject switches current project and syncs settings', async () => {
       const p1 = makeProject({ id: 'p1', settings: { nonTibetanFontSize: 18, indentSize: 40 } })
       const p2 = makeProject({ id: 'p2', settings: { nonTibetanFontSize: 22, indentSize: 50 } })
       seedStore([p1, p2])
-      const store = getStore()
+      const store = await getStore()
 
       store.selectProject('p2')
       expect(store.currentProjectId).toBe('p2')
       expect(store.indentSize).toBe(50)
     })
 
-    it('selectProject returns false when project is locked by other tab', () => {
+    it('selectProject returns false when project is locked by other tab', async () => {
       const p1 = makeProject({ id: 'p1' })
       const p2 = makeProject({ id: 'p2' })
       seedStore([p1, p2])
-      localStorage.setItem('outline-current-project', 'p1')
+      localStorage.setItem(`${META_PREFIX}current-project`, 'p1')
 
-      // Simulate another tab holding a lock on p2
       localStorage.setItem(
         'scaffold-project-lock-p2',
         JSON.stringify({ holderTabId: 'other-tab', heartbeatAt: Date.now() }),
       )
-      const store = getStore()
+      const store = await getStore()
       const result = store.selectProject('p2')
       expect(result).toBe(false)
       expect(store.projectLockBlockedProjectId).toBe('p2')
@@ -104,12 +107,12 @@ describe('Outline Store', () => {
   describe('outline operations', () => {
     let store
 
-    beforeEach(() => {
+    beforeEach(async () => {
       const item1 = makeItem({ id: 'a', text: 'A' })
       const item2 = makeItem({ id: 'b', text: 'B' })
       const item3 = makeItem({ id: 'c', text: 'C' })
       seedStore([makeProject({ id: 'p1', lists: [item1, item2, item3] })])
-      store = getStore()
+      store = await getStore()
     })
 
     it('addRootListItem appends to lists', () => {
@@ -216,9 +219,9 @@ describe('Outline Store', () => {
   describe('notes', () => {
     let store
 
-    beforeEach(() => {
+    beforeEach(async () => {
       seedStore([makeProject({ id: 'p1', lists: [makeItem({ id: 'i1' })] })])
-      store = getStore()
+      store = await getStore()
     })
 
     it('addShortNote appends note to item', () => {
@@ -268,9 +271,9 @@ describe('Outline Store', () => {
   describe('undo/redo', () => {
     let store
 
-    beforeEach(() => {
+    beforeEach(async () => {
       seedStore([makeProject({ id: 'p1', lists: [makeItem({ id: 'i1', text: 'original' })] })])
-      store = getStore()
+      store = await getStore()
     })
 
     it('undo restores previous state after mutation', () => {
@@ -299,21 +302,17 @@ describe('Outline Store', () => {
       for (let i = 0; i < 55; i++) {
         store.updateListItem('i1', { text: `v${i}` })
       }
-      // undoStack internally tracked; canUndo should be true
       expect(store.canUndo).toBe(true)
-      // Undo 50 times should exhaust stack
       for (let i = 0; i < 50; i++) {
         store.undo()
       }
       expect(store.canUndo).toBe(false)
     })
 
-    it('undo for wrong project is a no-op', () => {
+    it('undo for wrong project is a no-op', async () => {
       store.updateListItem('i1', { text: 'x' })
-      // Switch to new project to test isolation
-      const p2 = store.createProject('Other')
+      const p2 = await store.createProject('Other')
       store.selectProject(p2.id)
-      // History was cleared on project switch, so canUndo should be false
       expect(store.canUndo).toBe(false)
     })
   })
@@ -322,13 +321,13 @@ describe('Outline Store', () => {
   describe('bulk operations', () => {
     let store
 
-    beforeEach(() => {
+    beforeEach(async () => {
       const child = makeItem({ id: 'child', text: 'Child', parentId: 'root' })
       child.longNotes = [{ id: 'ln', text: 'note', collapsed: false }]
       const root = makeItem({ id: 'root', text: 'Root', children: [child] })
       root.collapsed = false
       seedStore([makeProject({ id: 'p1', lists: [root] })])
-      store = getStore()
+      store = await getStore()
     })
 
     it('collapseExpandAllItems collapses items with children', () => {
@@ -359,11 +358,11 @@ describe('Outline Store', () => {
 
   // ─── Multi-line paste ───────────────────────────────────────
   describe('applyMultiLinePasteAsSiblings', () => {
-    it('splits pasted text into sibling items', () => {
+    it('splits pasted text into sibling items', async () => {
       seedStore([
         makeProject({ id: 'p1', lists: [makeItem({ id: 'i1', text: 'first' })] }),
       ])
-      const store = getStore()
+      const store = await getStore()
       store.applyMultiLinePasteAsSiblings('i1', 'updated first', ['second', 'third'])
 
       expect(store.currentProject.lists[0].text).toBe('updated first')
@@ -375,27 +374,26 @@ describe('Outline Store', () => {
 
   // ─── Persistence roundtrip ──────────────────────────────────
   describe('persistence roundtrip', () => {
-    it('saveToLocalStorage + loadFromLocalStorage preserves project data', () => {
+    it('persistToStorage + loadFromStorage preserves project data', async () => {
       const item = makeItem({ id: 'r1', text: 'Root' })
       seedStore([makeProject({ id: 'p1', name: 'Saved', lists: [item] })])
-      const store1 = getStore()
+      const store1 = await getStore()
       expect(store1.currentProject.name).toBe('Saved')
 
-      // Re-create pinia to simulate reload
       setActivePinia(createPinia())
-      const store2 = getStore()
+      const store2 = await getStore()
       expect(store2.currentProject.name).toBe('Saved')
       expect(store2.currentProject.lists[0].text).toBe('Root')
     })
 
-    it('persists and restores UI preferences', () => {
+    it('persists and restores UI preferences', async () => {
       seedStore([makeProject({ id: 'p1' })])
-      const store1 = getStore()
+      const store1 = await getStore()
       store1.setFontScale(150)
       store1.setIndentSize(48)
 
       setActivePinia(createPinia())
-      const store2 = getStore()
+      const store2 = await getStore()
       expect(store2.fontScale).toBe(150)
       expect(store2.indentSize).toBe(48)
     })
@@ -403,67 +401,65 @@ describe('Outline Store', () => {
 
   // ─── Legacy migration-in-load ────────────────────────────────
   describe('legacy migration-in-load', () => {
-    it('migrates missing rootListType to ordered', () => {
+    it('migrates missing rootListType to ordered', async () => {
       const legacyProject = makeLegacyProject()
       delete legacyProject.rootListType
       seedStore([legacyProject])
-      const store = getStore()
+      const store = await getStore()
       expect(store.currentProject.rootListType).toBe('ordered')
     })
 
-    it('migrates legacy type to childrenType', () => {
+    it('migrates legacy type to childrenType', async () => {
       seedStore([makeLegacyProject()])
-      const store = getStore()
+      const store = await getStore()
       const item = store.currentProject.lists[0]
       expect(item.childrenType).toBe('ordered')
       expect(item.type).toBeUndefined()
     })
 
-    it('adds missing kind field as item', () => {
+    it('adds missing kind field as item', async () => {
       seedStore([makeLegacyProject()])
-      const store = getStore()
+      const store = await getStore()
       expect(store.currentProject.lists[0].kind).toBe('item')
       expect(store.currentProject.lists[0].children[0].kind).toBe('item')
     })
 
-    it('adds missing settings from defaults', () => {
+    it('adds missing settings from defaults', async () => {
       const proj = makeLegacyProject()
       delete proj.settings
       seedStore([proj])
-      const store = getStore()
+      const store = await getStore()
       expect(store.currentProject.settings).toBeTruthy()
       expect(store.currentProject.settings.tibetanFontFamily).toBeTruthy()
     })
 
-    it('backfills missing dual-script fields in existing settings', () => {
+    it('backfills missing dual-script fields in existing settings', async () => {
       const proj = makeLegacyProject()
       proj.settings = { fontSize: 18, indentSize: 32, defaultListType: 'ordered', showIndentGuides: true }
       seedStore([proj])
-      const store = getStore()
+      const store = await getStore()
       expect(store.currentProject.settings.tibetanFontFamily).toBeTruthy()
       expect(store.currentProject.settings.nonTibetanFontFamily).toBeTruthy()
     })
 
-    it('handles corrupted localStorage gracefully', () => {
-      localStorage.setItem('outline-projects', 'NOT_JSON')
-      const store = getStore()
-      // Should create example project as fallback
+    it('creates example project when storage is empty', async () => {
+      const store = await getStore()
       expect(store.projects.length).toBeGreaterThanOrEqual(1)
     })
 
-    it('falls back to first project when saved current id not found', () => {
+    it('falls back to first project when saved current id not found', async () => {
       const p = makeProject({ id: 'exists' })
       seedStore([p])
-      localStorage.setItem('outline-current-project', 'deleted-id')
-      const store = getStore()
+      localStorage.setItem(`${META_PREFIX}current-project`, 'deleted-id')
+      const store = await getStore()
       expect(store.currentProjectId).toBe('exists')
     })
 
-    it('sets currentProjectId to null if saved project and all fallbacks are locked', () => {
+    it('sets currentProjectId to null if saved project and all fallbacks are locked', async () => {
       const p1 = makeProject({ id: 'p1' })
       const p2 = makeProject({ id: 'p2' })
       seedStore([p1, p2])
-      localStorage.setItem('outline-current-project', 'p1')
+      localStorage.setItem(`${META_PREFIX}current-project`, 'p1')
       localStorage.setItem(
         'scaffold-project-lock-p1',
         JSON.stringify({ holderTabId: 'other-tab-1', heartbeatAt: Date.now() }),
@@ -473,7 +469,7 @@ describe('Outline Store', () => {
         JSON.stringify({ holderTabId: 'other-tab-2', heartbeatAt: Date.now() }),
       )
 
-      const store = getStore()
+      const store = await getStore()
       expect(store.currentProjectId).toBeNull()
     })
   })
@@ -482,7 +478,7 @@ describe('Outline Store', () => {
   describe('navigation helpers', () => {
     let store
 
-    beforeEach(() => {
+    beforeEach(async () => {
       const items = [
         makeItem({ id: 'a', text: 'A' }),
         makeDivider({ id: 'div-1' }),
@@ -490,7 +486,7 @@ describe('Outline Store', () => {
         makeItem({ id: 'c', text: 'C' }),
       ]
       seedStore([makeProject({ id: 'p1', lists: items })])
-      store = getStore()
+      store = await getStore()
     })
 
     it('findNextSibling wraps around and skips dividers', () => {
@@ -518,9 +514,9 @@ describe('Outline Store', () => {
   describe('settings setters', () => {
     let store
 
-    beforeEach(() => {
+    beforeEach(async () => {
       seedStore([makeProject({ id: 'p1' })])
-      store = getStore()
+      store = await getStore()
     })
 
     it('setIndentSize updates store and project settings', () => {
@@ -555,7 +551,7 @@ describe('Outline Store', () => {
 
   describe('import and versioning branches', () => {
     it('importFromJSONFile rejects when no file is selected', async () => {
-      const store = getStore()
+      const store = await getStore()
       const originalCreate = document.createElement.bind(document)
       vi.spyOn(document, 'createElement').mockImplementation((tagName, options) => {
         if (tagName === 'input') {
@@ -575,10 +571,9 @@ describe('Outline Store', () => {
     })
 
     it('importFromJSONFile imports project and resolves collisions', async () => {
-      // We mock the file picker path so the test stays deterministic and browserless.
       const existing = makeProject({ id: 'dup', name: 'Existing' })
       seedStore([existing])
-      const store = getStore()
+      const store = await getStore()
       const originalCreate = document.createElement.bind(document)
       const payload = {
         formatVersion: '1.0',
@@ -621,71 +616,60 @@ describe('Outline Store', () => {
       expect(store.projects[1].id).not.toBe('dup')
     })
 
-    it('saveVersion skips duplicates compared to latest version', () => {
+    it('saveVersion skips duplicates compared to latest version', async () => {
       seedStore([makeProject({ id: 'p1', lists: [makeItem({ id: 'a', text: 'A' })] })])
-      const store = getStore()
+      const store = await getStore()
 
-      const firstId = store.saveVersion('Initial')
+      const firstId = await store.saveVersion('Initial')
       expect(firstId).toBeTruthy()
-      const secondId = store.saveVersion('Duplicate attempt')
+      const secondId = await store.saveVersion('Duplicate attempt')
       expect(secondId).toBeNull()
     })
 
-    it('saveVersion duplicate check ignores malformed existing version entries', () => {
+    it('saveVersion duplicate check ignores malformed existing version entries', async () => {
       seedStore([makeProject({ id: 'p1' })])
-      const store = getStore()
-      localStorage.setItem('scaffold-version-p1-bad', 'NOT_JSON')
+      const store = await getStore()
+      await getStorageAdapter().setMeta('scaffold-version-p1-bad', 'NOT_JSON')
 
-      const versionId = store.saveVersion('After malformed latest')
+      const versionId = await store.saveVersion('After malformed latest')
       expect(versionId).toBeTruthy()
     })
 
-    it('restoreVersion returns null for invalid payloads', () => {
-      const store = getStore()
+    it('restoreVersion returns null for invalid payloads', async () => {
+      const store = await getStore()
       expect(store.restoreVersion(null)).toBeNull()
       expect(store.restoreVersion({})).toBeNull()
       expect(store.restoreVersion({ data: { invalid: true } })).toBeNull()
     })
 
-    it('auto-start versioning creates a version when configured', () => {
-      vi.useFakeTimers()
-      localStorage.setItem(
-        'scaffold-program-settings',
+    it('auto-start versioning creates a version when configured', async () => {
+      const adapter = getStorageAdapter()
+      await adapter.setMeta(
+        'program-settings',
         JSON.stringify({ autoVersioning: ['start'] }),
       )
       seedStore([makeProject({ id: 'p1' })])
-      getStore()
+      const store = await getStore()
 
-      const versionKeys = []
-      for (let i = 0; i < localStorage.length; i++) {
-        const key = localStorage.key(i)
-        if (key?.startsWith('scaffold-version-p1-')) versionKeys.push(key)
-      }
-      expect(versionKeys.length).toBeGreaterThanOrEqual(1)
-      vi.useRealTimers()
+      const entries = await adapter.getMetaEntries('scaffold-version-p1-')
+      expect(entries.length).toBeGreaterThanOrEqual(1)
     })
 
-    it('auto-close and interval versioning paths execute without error', () => {
-      // Timer control keeps this branch test fast and non-flaky.
+    it('auto-close and interval versioning paths execute without error', async () => {
       vi.useFakeTimers()
-      localStorage.setItem(
-        'scaffold-program-settings',
+      const adapter = getStorageAdapter()
+      await adapter.setMeta(
+        'program-settings',
         JSON.stringify({ autoVersioning: ['close', 'interval'], versioningInterval: 0.001 }),
       )
       seedStore([makeProject({ id: 'p1' })])
-      getStore()
+      await getStore()
 
-      // setupAutoVersioning is deferred by setTimeout in store init.
-      vi.runOnlyPendingTimers()
       window.dispatchEvent(new Event('beforeunload'))
-      vi.advanceTimersByTime(1000)
+      await vi.advanceTimersByTimeAsync(1000)
 
-      const versionKeys = []
-      for (let i = 0; i < localStorage.length; i++) {
-        const key = localStorage.key(i)
-        if (key?.startsWith('scaffold-version-p1-')) versionKeys.push(key)
-      }
-      expect(versionKeys.length).toBeGreaterThanOrEqual(1)
+      const entries = await adapter.getMetaEntries('scaffold-version-p1-')
+      expect(entries.length).toBeGreaterThanOrEqual(1)
       vi.useRealTimers()
     })
   })

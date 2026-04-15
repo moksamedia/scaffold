@@ -16,6 +16,7 @@ import {
   isProjectLockedByOtherTab,
   PROJECT_LOCK_HEARTBEAT_MS,
 } from 'src/utils/project-tab-lock.js'
+import { getStorageAdapter } from 'src/utils/storage/index.js'
 
 /** Placeholder text for newly created list items (cleared when user starts editing). */
 export const DEFAULT_NEW_LIST_ITEM_TEXT = 'New Item'
@@ -44,6 +45,7 @@ export const useOutlineStore = defineStore('outline', () => {
   const maxHistorySize = 50
   const currentlyEditingId = ref(null)
   const longNoteEditorActive = ref(false)
+  const storeReady = ref(false)
   /** Set when selectProject is blocked because another tab holds the lock (for UI dialog). */
   const projectLockBlockedProjectId = ref(null)
   let projectLockHeartbeatTimer = null
@@ -93,7 +95,7 @@ export const useOutlineStore = defineStore('outline', () => {
       currentProject.value.lists = previousState.lists
       currentProject.value.rootListType = previousState.rootListType
       currentProject.value.updatedAt = new Date().toISOString()
-      saveToLocalStorage()
+      persistToStorage()
     } else {
       undoStack.value.push(previousState)
     }
@@ -115,7 +117,7 @@ export const useOutlineStore = defineStore('outline', () => {
       currentProject.value.lists = nextState.lists
       currentProject.value.rootListType = nextState.rootListType
       currentProject.value.updatedAt = new Date().toISOString()
-      saveToLocalStorage()
+      persistToStorage()
     } else {
       redoStack.value.push(nextState)
     }
@@ -168,9 +170,9 @@ export const useOutlineStore = defineStore('outline', () => {
     nonTibetanFontColor.value = project.settings.nonTibetanFontColor || '#000000'
   }
 
-  function createProject(name) {
-    // Load program-wide settings for defaults
-    const programSettings = JSON.parse(localStorage.getItem('scaffold-program-settings') || '{}')
+  async function createProject(name) {
+    const raw = await getStorageAdapter().getMeta('program-settings')
+    const programSettings = raw ? JSON.parse(raw) : {}
     
     const project = {
       id: generateId(),
@@ -195,7 +197,7 @@ export const useOutlineStore = defineStore('outline', () => {
       },
     }
     projects.value.push(project)
-    saveToLocalStorage()
+    persistToStorage()
     return project
   }
 
@@ -208,7 +210,7 @@ export const useOutlineStore = defineStore('outline', () => {
         currentProjectId.value = projects.value[0]?.id || null
       }
       syncProjectLockSession()
-      saveToLocalStorage()
+      persistToStorage()
     }
   }
 
@@ -217,7 +219,7 @@ export const useOutlineStore = defineStore('outline', () => {
     if (project) {
       project.name = newName
       project.updatedAt = new Date().toISOString()
-      saveToLocalStorage()
+      persistToStorage()
     }
   }
 
@@ -250,7 +252,7 @@ export const useOutlineStore = defineStore('outline', () => {
     const project = projects.value.find((p) => p.id === projectId)
     applyProjectSettingsFromProject(project)
 
-    saveToLocalStorage()
+    persistToStorage()
     syncProjectLockSession()
     return true
   }
@@ -303,7 +305,7 @@ export const useOutlineStore = defineStore('outline', () => {
     const newItem = createListItem(DEFAULT_NEW_LIST_ITEM_TEXT)
     currentProject.value.lists.push(newItem)
     currentProject.value.updatedAt = new Date().toISOString()
-    saveToLocalStorage()
+    persistToStorage()
     return newItem
   }
 
@@ -325,7 +327,7 @@ export const useOutlineStore = defineStore('outline', () => {
     }
 
     currentProject.value.updatedAt = new Date().toISOString()
-    saveToLocalStorage()
+    persistToStorage()
     return newItem
   }
 
@@ -336,7 +338,7 @@ export const useOutlineStore = defineStore('outline', () => {
     const divider = createDividerItem()
     currentProject.value.lists.push(divider)
     currentProject.value.updatedAt = new Date().toISOString()
-    saveToLocalStorage()
+    persistToStorage()
     return divider
   }
 
@@ -362,7 +364,7 @@ export const useOutlineStore = defineStore('outline', () => {
       saveState('Update item')
       Object.assign(item, updates)
       currentProject.value.updatedAt = new Date().toISOString()
-      saveToLocalStorage()
+      persistToStorage()
     }
   }
 
@@ -377,7 +379,7 @@ export const useOutlineStore = defineStore('outline', () => {
       parent.children.push(newItem)
       parent.collapsed = false
       currentProject.value.updatedAt = new Date().toISOString()
-      saveToLocalStorage()
+      persistToStorage()
       return newItem
     }
   }
@@ -426,7 +428,7 @@ export const useOutlineStore = defineStore('outline', () => {
     }
 
     currentProject.value.updatedAt = new Date().toISOString()
-    saveToLocalStorage()
+    persistToStorage()
   }
 
   function deleteListItem(itemId) {
@@ -447,7 +449,7 @@ export const useOutlineStore = defineStore('outline', () => {
     saveState('Delete item')
     if (removeFromList(currentProject.value.lists)) {
       currentProject.value.updatedAt = new Date().toISOString()
-      saveToLocalStorage()
+      persistToStorage()
     }
   }
 
@@ -463,7 +465,7 @@ export const useOutlineStore = defineStore('outline', () => {
         createdAt: new Date().toISOString(),
       })
       currentProject.value.updatedAt = new Date().toISOString()
-      saveToLocalStorage()
+      persistToStorage()
     }
   }
 
@@ -481,7 +483,7 @@ export const useOutlineStore = defineStore('outline', () => {
         createdAt: new Date().toISOString(),
       })
       currentProject.value.updatedAt = new Date().toISOString()
-      saveToLocalStorage()
+      persistToStorage()
       return noteId
     }
   }
@@ -497,7 +499,7 @@ export const useOutlineStore = defineStore('outline', () => {
       if (index !== -1) {
         notes.splice(index, 1)
         currentProject.value.updatedAt = new Date().toISOString()
-        saveToLocalStorage()
+        persistToStorage()
       }
     }
   }
@@ -513,7 +515,7 @@ export const useOutlineStore = defineStore('outline', () => {
       if (note) {
         note.text = text
         currentProject.value.updatedAt = new Date().toISOString()
-        saveToLocalStorage()
+        persistToStorage()
       }
     }
   }
@@ -527,7 +529,7 @@ export const useOutlineStore = defineStore('outline', () => {
       const note = item.longNotes.find((n) => n.id === noteId)
       if (note) {
         note.collapsed = !note.collapsed
-        saveToLocalStorage()
+        persistToStorage()
       }
     }
   }
@@ -555,7 +557,7 @@ export const useOutlineStore = defineStore('outline', () => {
     saveState(`Move item ${direction}`)
     if (moveInList(currentProject.value.lists)) {
       currentProject.value.updatedAt = new Date().toISOString()
-      saveToLocalStorage()
+      persistToStorage()
     }
   }
 
@@ -579,7 +581,7 @@ export const useOutlineStore = defineStore('outline', () => {
     saveState('Indent item')
     if (findAndIndent(currentProject.value.lists)) {
       currentProject.value.updatedAt = new Date().toISOString()
-      saveToLocalStorage()
+      persistToStorage()
     }
   }
 
@@ -604,7 +606,7 @@ export const useOutlineStore = defineStore('outline', () => {
     saveState('Outdent item')
     if (findAndOutdent(currentProject.value.lists, null, null)) {
       currentProject.value.updatedAt = new Date().toISOString()
-      saveToLocalStorage()
+      persistToStorage()
     }
   }
 
@@ -615,7 +617,7 @@ export const useOutlineStore = defineStore('outline', () => {
     currentProject.value.rootListType =
       currentProject.value.rootListType === 'ordered' ? 'unordered' : 'ordered'
     currentProject.value.updatedAt = new Date().toISOString()
-    saveToLocalStorage()
+    persistToStorage()
   }
 
   function toggleChildrenListType(itemId) {
@@ -627,7 +629,7 @@ export const useOutlineStore = defineStore('outline', () => {
       saveState('Toggle children list type')
       item.childrenType = item.childrenType === 'ordered' ? 'unordered' : 'ordered'
       currentProject.value.updatedAt = new Date().toISOString()
-      saveToLocalStorage()
+      persistToStorage()
     }
   }
 
@@ -817,7 +819,7 @@ export const useOutlineStore = defineStore('outline', () => {
     saveState(collapse ? 'Collapse all items' : 'Expand all items')
     updateItemCollapse(currentProject.value.lists)
     currentProject.value.updatedAt = new Date().toISOString()
-    saveToLocalStorage()
+    persistToStorage()
   }
 
   function collapseExpandAllLongNotes(collapse = true) {
@@ -839,7 +841,7 @@ export const useOutlineStore = defineStore('outline', () => {
     saveState(collapse ? 'Collapse all long notes' : 'Expand all long notes')
     updateNotesCollapse(currentProject.value.lists)
     currentProject.value.updatedAt = new Date().toISOString()
-    saveToLocalStorage()
+    persistToStorage()
   }
 
   const allLongNotesVisible = ref(true)
@@ -864,7 +866,7 @@ export const useOutlineStore = defineStore('outline', () => {
     saveState(show ? 'Show all long notes' : 'Hide all long notes')
     updateNotesVisibility(currentProject.value.lists)
     currentProject.value.updatedAt = new Date().toISOString()
-    saveToLocalStorage()
+    persistToStorage()
   }
 
   function exportProjectAsJSON() {
@@ -913,7 +915,7 @@ export const useOutlineStore = defineStore('outline', () => {
             projects.value.push(importedProject)
           })
           
-          saveToLocalStorage()
+          persistToStorage()
           resolve({
             success: true,
             imported: importResult.projects.length,
@@ -934,7 +936,7 @@ export const useOutlineStore = defineStore('outline', () => {
 
   function setFontScale(scale) {
     fontScale.value = scale
-    saveToLocalStorage()
+    persistToStorage()
   }
 
   function setIndentSize(size) {
@@ -946,7 +948,7 @@ export const useOutlineStore = defineStore('outline', () => {
       currentProject.value.settings.indentSize = size
       currentProject.value.updatedAt = new Date().toISOString()
     }
-    saveToLocalStorage()
+    persistToStorage()
   }
 
   function setDefaultListType(type) {
@@ -958,7 +960,7 @@ export const useOutlineStore = defineStore('outline', () => {
       currentProject.value.settings.defaultListType = type
       currentProject.value.updatedAt = new Date().toISOString()
     }
-    saveToLocalStorage()
+    persistToStorage()
   }
 
   function setShowIndentGuides(show) {
@@ -970,7 +972,7 @@ export const useOutlineStore = defineStore('outline', () => {
       currentProject.value.settings.showIndentGuides = show
       currentProject.value.updatedAt = new Date().toISOString()
     }
-    saveToLocalStorage()
+    persistToStorage()
   }
 
   function setTibetanFontFamily(value) {
@@ -980,7 +982,7 @@ export const useOutlineStore = defineStore('outline', () => {
       currentProject.value.settings.tibetanFontFamily = value
       currentProject.value.updatedAt = new Date().toISOString()
     }
-    saveToLocalStorage()
+    persistToStorage()
   }
 
   function setTibetanFontSize(value) {
@@ -990,7 +992,7 @@ export const useOutlineStore = defineStore('outline', () => {
       currentProject.value.settings.tibetanFontSize = value
       currentProject.value.updatedAt = new Date().toISOString()
     }
-    saveToLocalStorage()
+    persistToStorage()
   }
 
   function setTibetanFontColor(value) {
@@ -1000,7 +1002,7 @@ export const useOutlineStore = defineStore('outline', () => {
       currentProject.value.settings.tibetanFontColor = value
       currentProject.value.updatedAt = new Date().toISOString()
     }
-    saveToLocalStorage()
+    persistToStorage()
   }
 
   function setNonTibetanFontFamily(value) {
@@ -1010,7 +1012,7 @@ export const useOutlineStore = defineStore('outline', () => {
       currentProject.value.settings.nonTibetanFontFamily = value
       currentProject.value.updatedAt = new Date().toISOString()
     }
-    saveToLocalStorage()
+    persistToStorage()
   }
 
   function setNonTibetanFontSize(value) {
@@ -1022,7 +1024,7 @@ export const useOutlineStore = defineStore('outline', () => {
       currentProject.value.settings.fontSize = value
       currentProject.value.updatedAt = new Date().toISOString()
     }
-    saveToLocalStorage()
+    persistToStorage()
   }
 
   function setNonTibetanFontColor(value) {
@@ -1032,23 +1034,14 @@ export const useOutlineStore = defineStore('outline', () => {
       currentProject.value.settings.nonTibetanFontColor = value
       currentProject.value.updatedAt = new Date().toISOString()
     }
-    saveToLocalStorage()
+    persistToStorage()
   }
 
-  function saveToLocalStorage() {
-    localStorage.setItem('outline-projects', JSON.stringify(projects.value))
-    localStorage.setItem('outline-current-project', currentProjectId.value || '')
-    localStorage.setItem('outline-font-size', fontSize.value.toString())
-    localStorage.setItem('outline-font-scale', fontScale.value.toString())
-    localStorage.setItem('outline-indent-size', indentSize.value.toString())
-    localStorage.setItem('outline-default-list-type', defaultListType.value)
-    localStorage.setItem('outline-show-indent-guides', showIndentGuides.value.toString())
-    localStorage.setItem('outline-tibetan-font-family', tibetanFontFamily.value)
-    localStorage.setItem('outline-tibetan-font-size', tibetanFontSize.value.toString())
-    localStorage.setItem('outline-tibetan-font-color', tibetanFontColor.value)
-    localStorage.setItem('outline-non-tibetan-font-family', nonTibetanFontFamily.value)
-    localStorage.setItem('outline-non-tibetan-font-size', nonTibetanFontSize.value.toString())
-    localStorage.setItem('outline-non-tibetan-font-color', nonTibetanFontColor.value)
+  function persistToStorage() {
+    const adapter = getStorageAdapter()
+    adapter.saveProjects(JSON.parse(JSON.stringify(projects.value)))
+    adapter.setMeta('current-project', currentProjectId.value || '')
+    adapter.setMeta('font-scale', fontScale.value.toString())
   }
 
   function createExampleProject() {
@@ -1312,128 +1305,79 @@ export const useOutlineStore = defineStore('outline', () => {
       },
     }
     projects.value.push(project)
-    saveToLocalStorage()
+    persistToStorage()
     return project
   }
 
-  function loadFromLocalStorage() {
-    const savedProjects = localStorage.getItem('outline-projects')
-    const savedCurrentId = localStorage.getItem('outline-current-project')
+  async function loadFromStorage() {
+    const adapter = getStorageAdapter()
+    const loadedProjects = await adapter.loadProjects()
+    const savedCurrentId = await adapter.getMeta('current-project')
+    const savedFontScale = await adapter.getMeta('font-scale')
     let adjustedCurrentDueToLock = false
-    const savedFontSize = localStorage.getItem('outline-font-size')
-    const savedFontScale = localStorage.getItem('outline-font-scale')
-    const savedIndentSize = localStorage.getItem('outline-indent-size')
-    const savedDefaultListType = localStorage.getItem('outline-default-list-type')
-    const savedShowIndentGuides = localStorage.getItem('outline-show-indent-guides')
-    const savedTibetanFontFamily = localStorage.getItem('outline-tibetan-font-family')
-    const savedTibetanFontSize = localStorage.getItem('outline-tibetan-font-size')
-    const savedTibetanFontColor = localStorage.getItem('outline-tibetan-font-color')
-    const savedNonTibetanFontFamily = localStorage.getItem('outline-non-tibetan-font-family')
-    const savedNonTibetanFontSize = localStorage.getItem('outline-non-tibetan-font-size')
-    const savedNonTibetanFontColor = localStorage.getItem('outline-non-tibetan-font-color')
 
-    if (savedFontSize) {
-      fontSize.value = parseInt(savedFontSize, 10)
-    }
     if (savedFontScale) {
       fontScale.value = parseInt(savedFontScale, 10)
     }
 
-    if (savedIndentSize) {
-      indentSize.value = parseInt(savedIndentSize, 10)
-    }
+    if (loadedProjects.length > 0) {
+      projects.value = loadedProjects
 
-    if (savedDefaultListType) {
-      defaultListType.value = savedDefaultListType
-    }
+      projects.value.forEach((project) => {
+        if (!project.rootListType) {
+          project.rootListType = 'ordered'
+        }
 
-    if (savedShowIndentGuides !== null) {
-      showIndentGuides.value = savedShowIndentGuides === 'true'
-    }
-
-    if (savedTibetanFontFamily) {
-      tibetanFontFamily.value = savedTibetanFontFamily
-    }
-    if (savedTibetanFontSize) {
-      tibetanFontSize.value = parseInt(savedTibetanFontSize, 10)
-    }
-    if (savedTibetanFontColor) {
-      tibetanFontColor.value = savedTibetanFontColor
-    }
-    if (savedNonTibetanFontFamily) {
-      nonTibetanFontFamily.value = savedNonTibetanFontFamily
-    }
-    if (savedNonTibetanFontSize) {
-      nonTibetanFontSize.value = parseInt(savedNonTibetanFontSize, 10)
-      fontSize.value = nonTibetanFontSize.value
-    }
-    if (savedNonTibetanFontColor) {
-      nonTibetanFontColor.value = savedNonTibetanFontColor
-    }
-
-    if (savedProjects) {
-      try {
-        projects.value = JSON.parse(savedProjects)
-        // Migrate old data structure
-        projects.value.forEach((project) => {
-          if (!project.rootListType) {
-            project.rootListType = 'ordered'
+        if (!project.settings) {
+          project.settings = {
+            fontSize: fontSize.value,
+            indentSize: indentSize.value,
+            defaultListType: defaultListType.value,
+            showIndentGuides: showIndentGuides.value,
+            tibetanFontFamily: tibetanFontFamily.value,
+            tibetanFontSize: tibetanFontSize.value,
+            tibetanFontColor: tibetanFontColor.value,
+            nonTibetanFontFamily: nonTibetanFontFamily.value,
+            nonTibetanFontSize: nonTibetanFontSize.value,
+            nonTibetanFontColor: nonTibetanFontColor.value,
           }
+        } else {
+          project.settings.fontSize =
+            project.settings.nonTibetanFontSize || project.settings.fontSize || fontSize.value
+          project.settings.tibetanFontFamily =
+            project.settings.tibetanFontFamily || tibetanFontFamily.value
+          project.settings.tibetanFontSize = project.settings.tibetanFontSize || tibetanFontSize.value
+          project.settings.tibetanFontColor =
+            project.settings.tibetanFontColor || tibetanFontColor.value
+          project.settings.nonTibetanFontFamily =
+            project.settings.nonTibetanFontFamily || nonTibetanFontFamily.value
+          project.settings.nonTibetanFontSize =
+            project.settings.nonTibetanFontSize || nonTibetanFontSize.value
+          project.settings.nonTibetanFontColor =
+            project.settings.nonTibetanFontColor || nonTibetanFontColor.value
+        }
 
-          // Migrate projects to include settings if they don't have them
-          if (!project.settings) {
-            project.settings = {
-              fontSize: fontSize.value,
-              indentSize: indentSize.value,
-              defaultListType: defaultListType.value,
-              showIndentGuides: showIndentGuides.value,
-              tibetanFontFamily: tibetanFontFamily.value,
-              tibetanFontSize: tibetanFontSize.value,
-              tibetanFontColor: tibetanFontColor.value,
-              nonTibetanFontFamily: nonTibetanFontFamily.value,
-              nonTibetanFontSize: nonTibetanFontSize.value,
-              nonTibetanFontColor: nonTibetanFontColor.value,
+        function migrateItems(items) {
+          items.forEach((item) => {
+            if (!item.kind) {
+              item.kind = ITEM_KIND.ITEM
             }
-          } else {
-            project.settings.fontSize =
-              project.settings.nonTibetanFontSize || project.settings.fontSize || fontSize.value
-            project.settings.tibetanFontFamily =
-              project.settings.tibetanFontFamily || tibetanFontFamily.value
-            project.settings.tibetanFontSize = project.settings.tibetanFontSize || tibetanFontSize.value
-            project.settings.tibetanFontColor =
-              project.settings.tibetanFontColor || tibetanFontColor.value
-            project.settings.nonTibetanFontFamily =
-              project.settings.nonTibetanFontFamily || nonTibetanFontFamily.value
-            project.settings.nonTibetanFontSize =
-              project.settings.nonTibetanFontSize || nonTibetanFontSize.value
-            project.settings.nonTibetanFontColor =
-              project.settings.nonTibetanFontColor || nonTibetanFontColor.value
-          }
-
-          function migrateItems(items) {
-            items.forEach((item) => {
-              if (!item.kind) {
-                item.kind = ITEM_KIND.ITEM
-              }
-              if (item.type && !item.childrenType) {
-                item.childrenType = 'ordered'
-                delete item.type
-              }
-              if (!item.childrenType) {
-                item.childrenType = 'ordered'
-              }
-              if (item.children) {
-                migrateItems(item.children)
-              }
-            })
-          }
-          if (project.lists) {
-            migrateItems(project.lists)
-          }
-        })
-      } catch (e) {
-        console.error('Failed to load projects from localStorage:', e)
-      }
+            if (item.type && !item.childrenType) {
+              item.childrenType = 'ordered'
+              delete item.type
+            }
+            if (!item.childrenType) {
+              item.childrenType = 'ordered'
+            }
+            if (item.children) {
+              migrateItems(item.children)
+            }
+          })
+        }
+        if (project.lists) {
+          migrateItems(project.lists)
+        }
+      })
     }
 
     if (savedCurrentId && projects.value.length > 0) {
@@ -1463,8 +1407,10 @@ export const useOutlineStore = defineStore('outline', () => {
 
     syncProjectLockSession()
     if (adjustedCurrentDueToLock) {
-      saveToLocalStorage()
+      persistToStorage()
     }
+
+    storeReady.value = true
   }
 
   function registerProjectLockUnloadHandlers() {
@@ -1473,21 +1419,17 @@ export const useOutlineStore = defineStore('outline', () => {
     window.addEventListener('pagehide', release)
   }
 
-  function saveVersion(name = null, trigger = 'manual') {
+  async function saveVersion(name = null, trigger = 'manual') {
     if (!currentProject.value) return
     
-    // Generate current project data for comparison
     const currentData = exportAsJSON([currentProject.value], currentProject.value.id)
     
-    // Check if this version is identical to the latest saved version
-    const latestVersion = getLatestVersion(currentProject.value.id)
+    const latestVersion = await getLatestVersion(currentProject.value.id)
     if (latestVersion && latestVersion.data) {
-      // Compare the JSON strings (excluding metadata like timestamps)
       const currentProjectJson = JSON.stringify(currentData.projects[0])
       const latestProjectJson = JSON.stringify(latestVersion.data.projects[0])
       
       if (currentProjectJson === latestProjectJson) {
-        // Project is identical to latest version - don't save duplicate
         return null
       }
     }
@@ -1495,7 +1437,6 @@ export const useOutlineStore = defineStore('outline', () => {
     const versionId = generateId()
     const timestamp = Date.now()
     
-    // Calculate stats for the version
     let itemCount = 0
     let noteCount = 0
     
@@ -1527,31 +1468,22 @@ export const useOutlineStore = defineStore('outline', () => {
     }
     
     const key = `scaffold-version-${currentProject.value.id}-${versionId}`
-    localStorage.setItem(key, JSON.stringify(versionData))
+    await getStorageAdapter().setMeta(key, JSON.stringify(versionData))
     
     return versionId
   }
 
-  function getLatestVersion(projectId) {
-    const versionKeys = []
-    for (let i = 0; i < localStorage.length; i++) {
-      const key = localStorage.key(i)
-      if (key && key.startsWith(`scaffold-version-${projectId}-`)) {
-        versionKeys.push(key)
-      }
-    }
+  async function getLatestVersion(projectId) {
+    const adapter = getStorageAdapter()
+    const entries = await adapter.getMetaEntries(`scaffold-version-${projectId}-`)
     
-    const versions = versionKeys
-      .map((key) => {
-        const data = localStorage.getItem(key)
-        if (data) {
-          try {
-            return JSON.parse(data)
-          } catch {
-            return null
-          }
+    const versions = entries
+      .map((entry) => {
+        try {
+          return JSON.parse(entry.value)
+        } catch {
+          return null
         }
-        return null
       })
       .filter((v) => v !== null)
       .sort((a, b) => b.timestamp - a.timestamp)
@@ -1584,7 +1516,7 @@ export const useOutlineStore = defineStore('outline', () => {
         applyProjectSettingsFromProject(restoredProject)
         clearHistory()
         syncProjectLockSession()
-        saveToLocalStorage()
+        persistToStorage()
 
         return restoredProject.id
       }
@@ -1595,14 +1527,13 @@ export const useOutlineStore = defineStore('outline', () => {
     return null
   }
 
-  function setupAutoVersioning() {
-    // Load settings
-    const settings = localStorage.getItem('scaffold-program-settings')
-    if (!settings) return
+  async function setupAutoVersioning() {
+    const adapter = getStorageAdapter()
+    const raw = await adapter.getMeta('program-settings')
+    if (!raw) return
     
-    const programSettings = JSON.parse(settings)
+    const programSettings = JSON.parse(raw)
     
-    // On program close
     if (programSettings.autoVersioning?.includes('close')) {
       window.addEventListener('beforeunload', () => {
         if (currentProject.value) {
@@ -1611,7 +1542,6 @@ export const useOutlineStore = defineStore('outline', () => {
       })
     }
     
-    // At intervals
     if (programSettings.autoVersioning?.includes('interval')) {
       const intervalMinutes = programSettings.versioningInterval || 10
       setInterval(() => {
@@ -1622,20 +1552,18 @@ export const useOutlineStore = defineStore('outline', () => {
     }
   }
 
-  loadFromLocalStorage()
-  registerProjectLockUnloadHandlers()
-
-  // Setup auto-versioning on load
-  setTimeout(setupAutoVersioning, 100)
-  
-  // Save version on start if enabled
-  const settings = localStorage.getItem('scaffold-program-settings')
-  if (settings) {
-    const programSettings = JSON.parse(settings)
-    if (programSettings.autoVersioning?.includes('start') && currentProject.value) {
-      saveVersion(null, 'auto-start')
+  const initPromise = loadFromStorage().then(async () => {
+    registerProjectLockUnloadHandlers()
+    await setupAutoVersioning()
+    
+    const raw = await getStorageAdapter().getMeta('program-settings')
+    if (raw) {
+      const programSettings = JSON.parse(raw)
+      if (programSettings.autoVersioning?.includes('start') && currentProject.value) {
+        await saveVersion(null, 'auto-start')
+      }
     }
-  }
+  })
 
   return {
     projects,
@@ -1654,6 +1582,8 @@ export const useOutlineStore = defineStore('outline', () => {
     nonTibetanFontColor,
     canUndo,
     canRedo,
+    storeReady,
+    initPromise,
     createProject,
     deleteProject,
     renameProject,

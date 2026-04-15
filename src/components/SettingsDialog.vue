@@ -424,6 +424,7 @@ import { ref, computed, watch, onMounted } from 'vue'
 import { useOutlineStore } from 'stores/outline-store'
 import { storeToRefs } from 'pinia'
 import { useQuasar } from 'quasar'
+import { getStorageAdapter } from 'src/utils/storage/index.js'
 
 const props = defineProps({
   modelValue: {
@@ -500,18 +501,18 @@ const fontSizeOptions = Array.from({ length: 37 }, (_, i) => {
   return { label: `${size}px`, value: size }
 })
 
-onMounted(() => {
+onMounted(async () => {
   loadActiveTab()
-  loadProgramSettings()
-  loadVersions()
+  await loadProgramSettings()
+  await loadVersions()
 })
 
 watch(currentProject, () => {
   loadVersions()
 })
 
-function loadProgramSettings() {
-  const saved = localStorage.getItem('scaffold-program-settings')
+async function loadProgramSettings() {
+  const saved = await getStorageAdapter().getMeta('program-settings')
   if (saved) {
     programSettings.value = {
       ...programSettings.value,
@@ -529,35 +530,22 @@ function loadActiveTab() {
   }
 }
 
-// No longer needed - projectSettings is now computed from store refs
-
-// Project settings are now automatically synced through direct store access
-
-function loadVersions() {
+async function loadVersions() {
   if (!currentProject.value) {
     versions.value = []
     return
   }
 
-  const versionKeys = []
-  for (let i = 0; i < localStorage.length; i++) {
-    const key = localStorage.key(i)
-    if (key && key.startsWith(`scaffold-version-${currentProject.value.id}-`)) {
-      versionKeys.push(key)
-    }
-  }
+  const adapter = getStorageAdapter()
+  const entries = await adapter.getMetaEntries(`scaffold-version-${currentProject.value.id}-`)
 
-  versions.value = versionKeys
-    .map((key) => {
-      const data = localStorage.getItem(key)
-      if (data) {
-        try {
-          return JSON.parse(data)
-        } catch {
-          return null
-        }
+  versions.value = entries
+    .map((entry) => {
+      try {
+        return JSON.parse(entry.value)
+      } catch {
+        return null
       }
-      return null
     })
     .filter((v) => v !== null)
     .sort((a, b) => b.timestamp - a.timestamp)
@@ -648,10 +636,10 @@ function deleteVersion(version) {
     message: `Are you sure you want to delete this version?`,
     cancel: true,
     persistent: true,
-  }).onOk(() => {
+  }).onOk(async () => {
     const key = `scaffold-version-${currentProject.value.id}-${version.id}`
-    localStorage.removeItem(key)
-    loadVersions()
+    await getStorageAdapter().deleteMeta(key)
+    await loadVersions()
     $q.notify({
       type: 'positive',
       message: 'Version deleted',
@@ -666,8 +654,7 @@ function formatDate(timestamp) {
 }
 
 function closeDialog() {
-  // Save program settings
-  localStorage.setItem('scaffold-program-settings', JSON.stringify(programSettings.value))
+  getStorageAdapter().setMeta('program-settings', JSON.stringify(programSettings.value))
   localStorage.setItem(SETTINGS_ACTIVE_TAB_KEY, activeTab.value)
   showDialog.value = false
 }

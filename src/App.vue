@@ -1,5 +1,8 @@
 <template>
-  <router-view />
+  <div v-if="!storeReady" class="fullscreen row justify-center items-center">
+    <q-spinner size="48px" color="primary" />
+  </div>
+  <router-view v-else />
 </template>
 
 <script setup>
@@ -8,10 +11,9 @@ import { useOutlineStore } from 'stores/outline-store'
 import { storeToRefs } from 'pinia'
 
 const store = useOutlineStore()
-const { longNoteEditorActive } = storeToRefs(store)
+const { longNoteEditorActive, storeReady } = storeToRefs(store)
 
 function handleKeyDown(event) {
-  // If long note editor is active, let it handle undo/redo
   if (longNoteEditorActive.value) {
     return
   }

@@ -21,7 +21,7 @@ Scaffold is a Quasar Vue 3 application for creating and managing hierarchical ou
 - Keyboard navigation: TAB (next sibling), Shift+TAB (next item in outline)
 - Auto-scroll to visible items during navigation
 - Click-to-edit text interface
-- LocalStorage persistence
+- IndexedDB persistence (via storage adapter abstraction)
 - Export functionality: Markdown, DOCX, and JSON formats with proper formatting
 - Import functionality: JSON-based project restoration and backup
 - Bulk collapse/expand controls for items and notes
@@ -37,10 +37,11 @@ Scaffold is a Quasar Vue 3 application for creating and managing hierarchical ou
 - Undo/redo system with state snapshots
 - Per-project settings storage and restoration with real-time sync
 - Navigation functions for keyboard shortcuts
-- LocalStorage persistence with migration logic
+- Async storage via adapter (IndexedDB in production, localStorage adapter in tests)
+- `initPromise` / `storeReady` for async hydration at startup; App.vue shows spinner until ready
 - Export functionality integration
 - Bulk collapse/expand operations for items and notes
-- Versioning system: saveVersion(), restoreVersion(), getLatestVersion() with duplicate detection
+- Versioning system: saveVersion(), restoreVersion(), getLatestVersion() with duplicate detection (all async)
 - Settings synchronization between UI components
 - Dual-script typography settings (Tibetan/non-Tibetan family, size, color) with program-wide defaults for new projects
 
@@ -57,12 +58,13 @@ Scaffold is a Quasar Vue 3 application for creating and managing hierarchical ou
 - `json.js` - JSON export/import with schema validation, conflict resolution, format versioning, and root-entry `kind` persistence (`item`/`divider`)
 
 ### `/src/utils/storage/`
-- `storage-adapter.js` - Async storage adapter interface with localStorage implementation; designed for future IndexedDB provider parity
-- `migration.js` - State machine for localStorage → IndexedDB migration (not_started → in_progress → completed/failed) with idempotency and verification
+- `storage-adapter.js` - Async storage adapter interface with `createLocalStorageAdapter()` and `createIndexedDbAdapter()` implementations; IndexedDB schema: `scaffoldDb` v1 with `projects` and `meta` object stores
+- `index.js` - Singleton accessor (`getStorageAdapter()` / `setStorageAdapter()`) used by store and components
+- `migration.js` - State machine for localStorage → IndexedDB migration (not used at runtime; retained for reference)
 
 ### `/tests/`
 - Test runner: Vitest with happy-dom environment
-- `tests/setup.js` - Global setup (storage clear, anchor click stub)
+- `tests/setup.js` - Global setup (storage clear, anchor click stub, localStorage adapter injection)
 - `tests/fixtures/projects.js` - Canonical project/item/divider factory helpers
 - `tests/json-export-import.test.js` - JSON export/import validation, normalization, and roundtrip
 - `tests/project-tab-lock.test.js` - Tab lock freshness, ownership, and edge cases
@@ -71,7 +73,7 @@ Scaffold is a Quasar Vue 3 application for creating and managing hierarchical ou
 - `tests/docx-export.test.js` - DOCX generation structural smoke tests
 - `tests/version-storage.test.js` - Version serialization/parsing with LZ compression
 - `tests/version-smart-trim.test.js` - Smart trim retention bands and idempotency
-- `tests/storage-adapter.test.js` - localStorage adapter contract tests
+- `tests/storage-adapter.test.js` - Shared contract tests for both localStorage and IndexedDB adapters (uses fake-indexeddb)
 - `tests/migration.test.js` - Migration state machine: success, idempotency, partial failure, corrupt data, retry
 
 ### Key Technical Patterns
@@ -118,7 +120,7 @@ Scaffold is a Quasar Vue 3 application for creating and managing hierarchical ou
 - Context-aware keyboard shortcuts: undo/redo directed to long note editor when active
 - GitHub Pages deployment with automatic CI/CD via GitHub Actions
 - Comprehensive versioning system:
-  - Per-project version history stored in localStorage
+  - Per-project version history stored via adapter meta store
   - Manual and automatic versioning triggers
   - Duplicate version detection to prevent saving identical versions
   - Version restoration as new projects
