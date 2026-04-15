@@ -107,11 +107,14 @@ export function exportAsMarkdown(project) {
   markdown += processItems(project.lists, 0, project.rootListType)
 
   // Create and download file
+  const pad = (value) => String(value).padStart(2, '0')
+  const now = new Date()
+  const timestamp = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}_${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}`
   const blob = new Blob([markdown], { type: 'text/markdown' })
   const url = URL.createObjectURL(blob)
   const link = document.createElement('a')
   link.href = url
-  link.download = `${project.name.replace(/[^a-z0-9]/gi, '_')}.md`
+  link.download = `${project.name.replace(/[^a-z0-9]/gi, '_')}_${timestamp.replace(/[^a-z0-9]/gi, '_')}.md`
   document.body.appendChild(link)
   link.click()
   document.body.removeChild(link)

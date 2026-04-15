@@ -146,6 +146,17 @@ export function downloadJSON(data, filename = 'outline') {
   URL.revokeObjectURL(url)
 }
 
+function getFilenameTimestamp(date = new Date()) {
+  const pad = (value) => String(value).padStart(2, '0')
+  const year = date.getFullYear()
+  const month = pad(date.getMonth() + 1)
+  const day = pad(date.getDate())
+  const hours = pad(date.getHours())
+  const minutes = pad(date.getMinutes())
+  const seconds = pad(date.getSeconds())
+  return `${year}-${month}-${day}_${hours}:${minutes}:${seconds}`
+}
+
 export function validateImportData(data) {
   const errors = []
 
@@ -272,7 +283,7 @@ export function exportSingleProjectAsJSON(project) {
   if (!project) return null
   
   const exportData = exportAsJSON([project], project.id)
-  const filename = `${project.name}_outline`
+  const filename = `${project.name}_outline_${getFilenameTimestamp()}`
   
   downloadJSON(exportData, filename)
 }
@@ -282,8 +293,7 @@ export function exportAllProjectsAsJSON(projects) {
   if (!projects || projects.length === 0) return null
   
   const exportData = exportAsJSON(projects)
-  const timestamp = new Date().toISOString().split('T')[0]
-  const filename = `outline_maker_backup_${timestamp}`
+  const filename = `outline_maker_backup_${getFilenameTimestamp()}`
   
   downloadJSON(exportData, filename)
 }

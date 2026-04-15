@@ -1,5 +1,5 @@
 <template>
-  <q-dialog v-model="showDialog" maximized>
+  <q-dialog v-model="showDialog" maximized @hide="persistProgramSettings">
     <q-card>
       <q-card-section class="row items-center q-pb-none">
         <div class="text-h6">Settings</div>
@@ -501,6 +501,10 @@ const fontSizeOptions = Array.from({ length: 37 }, (_, i) => {
   return { label: `${size}px`, value: size }
 })
 
+function persistProgramSettings() {
+  return getStorageAdapter().setMeta('program-settings', JSON.stringify(programSettings.value))
+}
+
 onMounted(async () => {
   loadActiveTab()
   await loadProgramSettings()
@@ -601,7 +605,9 @@ function exportVersion(version) {
   if (!version.data) return
 
   // Create filename with version info
-  const timestamp = new Date(version.timestamp).toISOString().split('T')[0]
+  const versionDate = new Date(version.timestamp)
+  const pad = (value) => String(value).padStart(2, '0')
+  const timestamp = `${versionDate.getFullYear()}-${pad(versionDate.getMonth() + 1)}-${pad(versionDate.getDate())}_${pad(versionDate.getHours())}:${pad(versionDate.getMinutes())}:${pad(versionDate.getSeconds())}`
   const projectName = currentProject.value?.name || 'project'
   const versionName = version.name ? `_${version.name.replace(/[^a-z0-9]/gi, '_')}` : ''
   const filename = `${projectName.replace(/[^a-z0-9]/gi, '_')}_version_${timestamp}${versionName}`
@@ -654,7 +660,7 @@ function formatDate(timestamp) {
 }
 
 function closeDialog() {
-  getStorageAdapter().setMeta('program-settings', JSON.stringify(programSettings.value))
+  persistProgramSettings()
   localStorage.setItem(SETTINGS_ACTIVE_TAB_KEY, activeTab.value)
   showDialog.value = false
 }

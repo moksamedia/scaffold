@@ -18,6 +18,10 @@ if (typeof window !== 'undefined') {
 export async function exportAsDocx(project) {
   if (!project) return
 
+  const pad = (value) => String(value).padStart(2, '0')
+  const now = new Date()
+  const timestamp = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}_${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}`
+
   // First pass: determine maximum nesting depth
   function getMaxDepth(items, currentDepth = 0) {
     let maxDepth = currentDepth
@@ -374,7 +378,7 @@ export async function exportAsDocx(project) {
     const url = URL.createObjectURL(blob)
     const link = document.createElement('a')
     link.href = url
-    link.download = `${project.name.replace(/[^a-z0-9]/gi, '_')}.docx`
+    link.download = `${project.name.replace(/[^a-z0-9]/gi, '_')}_${timestamp.replace(/[^a-z0-9]/gi, '_')}.docx`
     document.body.appendChild(link)
     link.click()
     document.body.removeChild(link)
