@@ -57,7 +57,7 @@ Scaffold is a Quasar Vue 3 application for creating and managing hierarchical ou
 ### `/src/utils/export/`
 - `markdown.js` - Markdown export functionality with HTML to markdown conversion and blockquote handling
 - `docx.js` - DOCX export with dynamic nesting levels, Word styles, and paragraph structure preservation
-- `json.js` - JSON export/import with schema validation, conflict resolution, format versioning, and root-entry `kind` persistence (`item`/`divider`)
+- `json.js` - JSON export/import with schema validation, conflict resolution, format versioning, root-entry `kind` persistence (`item`/`divider`), and optional embedded `projectVersions` payload (per-project version snapshots) controlled via `exportAsJSON(..., { versionsByProjectId })`. `importFromJSON` returns `{ projects, projectVersions, warnings }` with malformed version entries skipped (warnings) rather than failing the whole import.
 
 ### `/src/utils/storage/`
 - `storage-adapter.js` - Async storage adapter interface with `createLocalStorageAdapter()` and `createIndexedDbAdapter()` implementations; IndexedDB schema: `scaffoldDb` v1 with `projects` and `meta` object stores
@@ -113,10 +113,12 @@ Scaffold is a Quasar Vue 3 application for creating and managing hierarchical ou
   - Proper blockquote handling with line break preservation
   - Multi-line blockquotes with correct markdown syntax
 - JSON export/import system:
-  - Complete project backup with all settings and data
-  - Schema validation and error handling
-  - Conflict resolution for duplicate projects
-  - Format versioning for future compatibility
+ - Complete project backup with all settings and data
+ - Schema validation and error handling
+ - Conflict resolution for duplicate projects
+ - Format versioning for future compatibility
+ - Optional embedded version history (`projectVersions`) on both single-project and Export All flows; opt-in checkbox in the export dialogs (`OutlineEditor.vue` and `ProjectsSidebar.vue`)
+ - Import re-keys version meta entries (`scaffold-version-${projectId}-${versionId}`) to the destination project id when duplicate-project rename produces a fresh id, and rewrites embedded `data.projects[0].id` so dedupe and restore continue to work
 - Bulk operations: collapse/expand all items and all long notes separately
 - Modular export architecture with separate utility files
 - Context-aware keyboard shortcuts: undo/redo directed to long note editor when active

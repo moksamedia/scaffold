@@ -78,8 +78,8 @@
               <q-item clickable v-close-popup @click="exportAsDocx">
                 <q-item-section>Export as Word Document</q-item-section>
               </q-item>
-              <q-item clickable v-close-popup @click="exportAsJSON">
-                <q-item-section>Export as JSON</q-item-section>
+              <q-item clickable v-close-popup @click="openJsonExportDialog">
+                <q-item-section>Export as JSON...</q-item-section>
               </q-item>
             </q-list>
           </q-menu>
@@ -134,6 +134,30 @@
         </q-card-actions>
       </q-card>
     </q-dialog>
+
+    <!-- JSON Export Options Dialog -->
+    <q-dialog v-model="showJsonExportDialog">
+      <q-card style="min-width: 380px">
+        <q-card-section>
+          <div class="text-h6">Export as JSON</div>
+        </q-card-section>
+
+        <q-card-section>
+          <q-checkbox
+            v-model="includeVersionHistoryOnExport"
+            label="Include version history"
+          />
+          <div class="text-caption text-grey-8 q-mt-xs">
+            Embed all saved versions of this project in the export. The file will be larger.
+          </div>
+        </q-card-section>
+
+        <q-card-actions align="right">
+          <q-btn flat label="Cancel" @click="showJsonExportDialog = false" />
+          <q-btn flat label="Export" color="primary" @click="confirmExportAsJSON" />
+        </q-card-actions>
+      </q-card>
+    </q-dialog>
   </div>
 </template>
 
@@ -172,6 +196,10 @@ const rootDisplayItems = computed(() => {
 const showSaveVersionDialog = ref(false)
 const versionName = ref('')
 
+// JSON export options dialog
+const showJsonExportDialog = ref(false)
+const includeVersionHistoryOnExport = ref(false)
+
 function addRootItem() {
   store.addRootListItem()
 }
@@ -200,8 +228,23 @@ function exportAsDocx() {
   store.exportAsDocx()
 }
 
-function exportAsJSON() {
-  store.exportAsJSON()
+function openJsonExportDialog() {
+  includeVersionHistoryOnExport.value = false
+  showJsonExportDialog.value = true
+}
+
+async function confirmExportAsJSON() {
+  showJsonExportDialog.value = false
+  try {
+    await store.exportAsJSON({ includeVersionHistory: includeVersionHistoryOnExport.value })
+  } catch (error) {
+    $q.notify({
+      type: 'negative',
+      message: `Export failed: ${error.message}`,
+      position: 'top',
+      timeout: 4000,
+    })
+  }
 }
 
 function collapseAllItems() {

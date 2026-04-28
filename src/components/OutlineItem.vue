@@ -581,12 +581,13 @@ function outdent() {
   store.outdentItem(props.item.id)
 }
 
-function deleteItem() {
+async function deleteItem() {
   if (itemHasMeaningfulContent(props.item)) {
     const confirmed = window.confirm(
       'This list item contains content. Are you sure you want to delete it?',
     )
     if (!confirmed) return
+    await saveVersionBeforeDelete()
   }
   store.deleteListItem(props.item.id)
 }
@@ -617,13 +618,14 @@ function saveShortNote() {
   }
 }
 
-function deleteShortNote(noteId) {
+async function deleteShortNote(noteId) {
   const note = props.item.shortNotes.find((n) => n.id === noteId)
   if (note && hasMeaningfulText(note.text)) {
     const confirmed = window.confirm(
       'This note contains content. Are you sure you want to delete it?',
     )
     if (!confirmed) return
+    await saveVersionBeforeDelete()
   }
   store.deleteNote(props.item.id, noteId, 'short')
 }
@@ -710,13 +712,14 @@ function closeLongNoteDialog() {
   isAutosaving.value = false
 }
 
-function deleteLongNote(noteId) {
+async function deleteLongNote(noteId) {
   const note = props.item.longNotes.find((n) => n.id === noteId)
   if (note && hasMeaningfulText(stripHtml(note.text))) {
     const confirmed = window.confirm(
       'This note contains content. Are you sure you want to delete it?',
     )
     if (!confirmed) return
+    await saveVersionBeforeDelete()
   }
   store.deleteNote(props.item.id, noteId, 'long')
 }
@@ -735,6 +738,14 @@ function itemHasMeaningfulContent(item) {
   if ((item.longNotes || []).some((note) => hasMeaningfulText(stripHtml(note.text)))) return true
   if ((item.children || []).some((child) => itemHasMeaningfulContent(child))) return true
   return false
+}
+
+async function saveVersionBeforeDelete() {
+  try {
+    await store.saveVersion(null, 'auto-delete')
+  } catch (error) {
+    console.error('Failed to save pre-delete version:', error)
+  }
 }
 
 function escapeAttribute(value) {

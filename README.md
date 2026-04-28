@@ -142,6 +142,7 @@ A powerful hierarchical outline and note-taking application built with Vue 3 and
 
 - **Complete Backup**: Exports all project data, settings, and metadata
 - **Selective Export**: Export single project or all projects
+- **Optional Version History**: Both single-project and Export All flows offer an "Include version history" checkbox that embeds every saved version snapshot in the exported JSON. Imports restore those snapshots automatically, remapping them to the new project ID when an imported project collides with an existing one.
 - **Import Validation**: Schema validation with detailed error reporting
 - **Conflict Resolution**: Automatically handles duplicate project names
 - **Format Versioning**: Future-proof with version compatibility checking

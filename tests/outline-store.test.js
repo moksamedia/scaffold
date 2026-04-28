@@ -652,6 +652,187 @@ describe('Outline Store', () => {
       expect(store.projects[1].id).not.toBe('dup')
     })
 
+    it('importFromJSONFile restores embedded version history for new project ids', async () => {
+      const existing = makeProject({ id: 'dup', name: 'Existing' })
+      seedStore([existing])
+      const store = await getStore()
+      const originalCreate = document.createElement.bind(document)
+
+      const innerExport = {
+        formatVersion: '1.0',
+        exportedAt: new Date().toISOString(),
+        application: 'Scaffold',
+        projects: [
+          {
+            id: 'dup',
+            name: 'Snapshot',
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
+            rootListType: 'ordered',
+            settings: {},
+            items: [],
+          },
+        ],
+      }
+
+      const payload = {
+        formatVersion: '1.0',
+        exportedAt: new Date().toISOString(),
+        application: 'Scaffold',
+        projects: [
+          {
+            id: 'dup',
+            name: 'Imported',
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
+            items: [],
+          },
+        ],
+        projectVersions: {
+          dup: [
+            {
+              id: 'v-good',
+              projectId: 'dup',
+              name: 'Manual save',
+              timestamp: 1700000000000,
+              trigger: 'manual',
+              stats: { items: 0, notes: 0 },
+              data: innerExport,
+            },
+            // Malformed entry — should be skipped with a warning, not abort import.
+            {
+              id: 'v-bad',
+              projectId: 'dup',
+              timestamp: 1700000001000,
+            },
+          ],
+        },
+      }
+
+      vi.spyOn(document, 'createElement').mockImplementation((tagName, options) => {
+        if (tagName === 'input') {
+          return {
+            type: '',
+            accept: '',
+            onchange: null,
+            click() {
+              this.onchange?.({
+                target: {
+                  files: [{ text: async () => JSON.stringify(payload) }],
+                },
+              })
+            },
+          }
+        }
+        return originalCreate(tagName, options)
+      })
+
+      const result = await store.importFromJSONFile()
+      expect(result.success).toBe(true)
+      expect(result.imported).toBe(1)
+      expect(result.importedVersions).toBe(1)
+      expect(result.warnings.some((w) => w.includes('Skipped version'))).toBe(true)
+
+      // Imported project gets a fresh id; persisted version meta must use that id.
+      const importedProject = store.projects.find((p) => p.name.includes('(Imported)'))
+      expect(importedProject).toBeTruthy()
+      expect(importedProject.id).not.toBe('dup')
+
+      const adapter = getStorageAdapter()
+      const newEntries = await adapter.getMetaEntries(`scaffold-version-${importedProject.id}-`)
+      expect(newEntries).toHaveLength(1)
+
+      const stored = JSON.parse(newEntries[0].value)
+      expect(stored.id).toBe('v-good')
+      expect(stored.projectId).toBe(importedProject.id)
+      expect(stored.data.projects[0].id).toBe(importedProject.id)
+
+      // Original prefix must remain empty — versions were not duplicated.
+      const originalEntries = await adapter.getMetaEntries('scaffold-version-dup-')
+      expect(originalEntries).toHaveLength(0)
+    })
+
+    it('importFromJSONFile keeps original ids when no project collision exists', async () => {
+      seedStore([makeProject({ id: 'unrelated' })])
+      const store = await getStore()
+      const originalCreate = document.createElement.bind(document)
+
+      const innerExport = {
+        formatVersion: '1.0',
+        exportedAt: new Date().toISOString(),
+        application: 'Scaffold',
+        projects: [
+          {
+            id: 'fresh',
+            name: 'Snapshot',
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
+            rootListType: 'ordered',
+            settings: {},
+            items: [],
+          },
+        ],
+      }
+
+      const payload = {
+        formatVersion: '1.0',
+        exportedAt: new Date().toISOString(),
+        application: 'Scaffold',
+        projects: [
+          {
+            id: 'fresh',
+            name: 'Fresh Import',
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
+            items: [],
+          },
+        ],
+        projectVersions: {
+          fresh: [
+            {
+              id: 'v-1',
+              projectId: 'fresh',
+              name: null,
+              timestamp: 1700000000000,
+              trigger: 'manual',
+              stats: { items: 0, notes: 0 },
+              data: innerExport,
+            },
+          ],
+        },
+      }
+
+      vi.spyOn(document, 'createElement').mockImplementation((tagName, options) => {
+        if (tagName === 'input') {
+          return {
+            type: '',
+            accept: '',
+            onchange: null,
+            click() {
+              this.onchange?.({
+                target: {
+                  files: [{ text: async () => JSON.stringify(payload) }],
+                },
+              })
+            },
+          }
+        }
+        return originalCreate(tagName, options)
+      })
+
+      const result = await store.importFromJSONFile()
+      expect(result.imported).toBe(1)
+      expect(result.importedVersions).toBe(1)
+
+      const importedProject = store.projects.find((p) => p.id === 'fresh')
+      expect(importedProject).toBeTruthy()
+
+      const adapter = getStorageAdapter()
+      const entries = await adapter.getMetaEntries('scaffold-version-fresh-')
+      expect(entries).toHaveLength(1)
+    })
+
+
     it('saveVersion skips duplicates compared to latest version', async () => {
       seedStore([makeProject({ id: 'p1', lists: [makeItem({ id: 'a', text: 'A' })] })])
       const store = await getStore()

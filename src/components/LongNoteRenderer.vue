@@ -64,8 +64,11 @@ function renderNode(node, ctx, keyPath = '0') {
   if (node.nodeType !== Node.ELEMENT_NODE) return null
 
   const tag = node.tagName.toLowerCase()
+  const isEditorOnlyAudioControl =
+    node.getAttribute('data-remove-audio') === 'true' || node.classList?.contains('remove-embedded-audio-btn')
 
   if (SKIPPED_TAGS.has(tag)) return null
+  if (isEditorOnlyAudioControl) return null
 
   if (tag === 'audio') {
     const src = node.getAttribute('src') || ''

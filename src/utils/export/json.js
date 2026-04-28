@@ -22,11 +22,33 @@
  *       },
  *       "items": [...]
  *     }
- *   ]
+ *   ],
+ *   // Optional: only present when the user opted into "include version history".
+ *   // Keyed by the exported project's id (the same id present in `projects[].id`).
+ *   "projectVersions": {
+ *     "project123": [
+ *       {
+ *         "id": "v_abc",
+ *         "projectId": "project123",
+ *         "name": "Manual save",
+ *         "timestamp": 1724500200000,
+ *         "trigger": "manual",
+ *         "stats": { "items": 12, "notes": 3 },
+ *         "data": { ...embedded scaffold export envelope for the snapshot... }
+ *       }
+ *     ]
+ *   }
  * }
  */
 
-export function exportAsJSON(projects, selectedProjectId = null) {
+/**
+ * @typedef {Object} ExportOptions
+ * @property {Object<string, object[]>} [versionsByProjectId] Map of project id to its array
+ *   of version snapshot objects. Only included projects (matching `selectedProjectId` or all)
+ *   are serialized; entries for other ids are silently dropped.
+ */
+
+export function exportAsJSON(projects, selectedProjectId = null, options = {}) {
   const exportData = {
     formatVersion: "1.0",
     exportedAt: new Date().toISOString(),
@@ -61,7 +83,39 @@ export function exportAsJSON(projects, selectedProjectId = null) {
     items: processItems(project.lists || [])
   }))
 
+  const versionsByProjectId = options?.versionsByProjectId
+  if (versionsByProjectId && typeof versionsByProjectId === 'object') {
+    const includedIds = new Set(exportData.projects.map((p) => p.id))
+    const filtered = {}
+    for (const [projectId, versions] of Object.entries(versionsByProjectId)) {
+      if (!includedIds.has(projectId)) continue
+      if (!Array.isArray(versions) || versions.length === 0) continue
+      filtered[projectId] = versions.map((v) => sanitizeVersionForExport(v, projectId))
+    }
+    if (Object.keys(filtered).length > 0) {
+      exportData.projectVersions = filtered
+    }
+  }
+
   return exportData
+}
+
+function sanitizeVersionForExport(version, projectId) {
+  // Defensive copy so writes elsewhere don't mutate stored versions.
+  return {
+    id: version?.id || null,
+    projectId: version?.projectId || projectId,
+    name: version?.name ?? null,
+    timestamp: typeof version?.timestamp === 'number' ? version.timestamp : null,
+    trigger: version?.trigger || null,
+    stats: version?.stats
+      ? {
+          items: Number.isFinite(version.stats.items) ? version.stats.items : 0,
+          notes: Number.isFinite(version.stats.notes) ? version.stats.notes : 0,
+        }
+      : { items: 0, notes: 0 },
+    data: version?.data ?? null,
+  }
 }
 
 function processItems(items) {
@@ -219,6 +273,20 @@ export function validateImportData(data) {
     }
   })
 
+  // Validate optional projectVersions structure - structural problems become errors,
+  // per-entry malformations are deferred to importFromJSON (warnings + skip).
+  if (data.projectVersions !== undefined && data.projectVersions !== null) {
+    if (typeof data.projectVersions !== 'object' || Array.isArray(data.projectVersions)) {
+      errors.push('projectVersions must be an object keyed by project id')
+    } else {
+      for (const [projectId, versions] of Object.entries(data.projectVersions)) {
+        if (!Array.isArray(versions)) {
+          errors.push(`projectVersions[${projectId}] must be an array`)
+        }
+      }
+    }
+  }
+
   return {
     valid: errors.length === 0,
     errors,
@@ -253,6 +321,40 @@ export function importFromJSON(jsonData) {
     throw new Error(`Import validation failed: ${validation.errors.join(', ')}`)
   }
 
+  const warnings = [...validation.warnings]
+  const projectVersions = {}
+
+  if (jsonData.projectVersions && typeof jsonData.projectVersions === 'object') {
+    for (const [projectId, versions] of Object.entries(jsonData.projectVersions)) {
+      if (!Array.isArray(versions)) continue
+      const cleaned = []
+      versions.forEach((version, idx) => {
+        const issue = describeVersionImportIssue(version)
+        if (issue) {
+          warnings.push(`Skipped version ${idx + 1} for project ${projectId}: ${issue}`)
+          return
+        }
+        cleaned.push({
+          id: version.id,
+          projectId: version.projectId || projectId,
+          name: version.name ?? null,
+          timestamp: version.timestamp,
+          trigger: version.trigger || null,
+          stats: version.stats
+            ? {
+                items: Number.isFinite(version.stats.items) ? version.stats.items : 0,
+                notes: Number.isFinite(version.stats.notes) ? version.stats.notes : 0,
+              }
+            : { items: 0, notes: 0 },
+          data: version.data,
+        })
+      })
+      if (cleaned.length > 0) {
+        projectVersions[projectId] = cleaned
+      }
+    }
+  }
+
   // Process and return importable project data
   return {
     projects: jsonData.projects.map(project => ({
@@ -274,26 +376,38 @@ export function importFromJSON(jsonData) {
       },
       lists: normalizeImportedItems(project.items || [])
     })),
-    warnings: validation.warnings
+    projectVersions,
+    warnings,
   }
 }
 
+function describeVersionImportIssue(version) {
+  if (!version || typeof version !== 'object') return 'not an object'
+  if (!version.id) return 'missing version id'
+  if (typeof version.timestamp !== 'number') return 'missing or invalid timestamp'
+  if (!version.data || typeof version.data !== 'object') return 'missing data payload'
+  if (!Array.isArray(version.data.projects) || version.data.projects.length === 0) {
+    return 'data payload has no projects'
+  }
+  return null
+}
+
 // Utility function to export single project
-export function exportSingleProjectAsJSON(project) {
+export function exportSingleProjectAsJSON(project, options = {}) {
   if (!project) return null
-  
-  const exportData = exportAsJSON([project], project.id)
+
+  const exportData = exportAsJSON([project], project.id, options)
   const filename = `${project.name}_outline_${getFilenameTimestamp()}`
-  
+
   downloadJSON(exportData, filename)
 }
 
 // Utility function to export all projects
-export function exportAllProjectsAsJSON(projects) {
+export function exportAllProjectsAsJSON(projects, options = {}) {
   if (!projects || projects.length === 0) return null
-  
-  const exportData = exportAsJSON(projects)
+
+  const exportData = exportAsJSON(projects, null, options)
   const filename = `outline_maker_backup_${getFilenameTimestamp()}`
-  
+
   downloadJSON(exportData, filename)
 }

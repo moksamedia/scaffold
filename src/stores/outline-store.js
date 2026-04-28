@@ -874,13 +874,114 @@ export const useOutlineStore = defineStore('outline', () => {
     persistToStorage()
   }
 
-  function exportProjectAsJSON() {
-    if (!currentProject.value) return
-    exportSingleProjectAsJSON(currentProject.value)
+  async function loadVersionsForProject(projectId) {
+    if (!projectId) return []
+    const adapter = getStorageAdapter()
+    const entries = await adapter.getMetaEntries(`scaffold-version-${projectId}-`)
+    return entries
+      .map((entry) => {
+        try {
+          return JSON.parse(entry.value)
+        } catch {
+          return null
+        }
+      })
+      .filter((v) => v !== null)
+      .sort((a, b) => b.timestamp - a.timestamp)
   }
 
-  function exportAllAsJSON() {
-    exportAllProjectsAsJSON(projects.value)
+  async function gatherVersionsByProjectId(projectIds) {
+    const map = {}
+    for (const projectId of projectIds) {
+      const versions = await loadVersionsForProject(projectId)
+      if (versions.length > 0) {
+        map[projectId] = versions
+      }
+    }
+    return map
+  }
+
+  async function exportProjectAsJSON(options = {}) {
+    if (!currentProject.value) return
+    const exportOptions = {}
+    if (options.includeVersionHistory) {
+      exportOptions.versionsByProjectId = await gatherVersionsByProjectId([
+        currentProject.value.id,
+      ])
+    }
+    exportSingleProjectAsJSON(currentProject.value, exportOptions)
+  }
+
+  async function exportAllAsJSON(options = {}) {
+    const exportOptions = {}
+    if (options.includeVersionHistory) {
+      exportOptions.versionsByProjectId = await gatherVersionsByProjectId(
+        projects.value.map((p) => p.id),
+      )
+    }
+    exportAllProjectsAsJSON(projects.value, exportOptions)
+  }
+
+  async function persistImportedVersions(versionsByOriginalProjectId, projectIdMap) {
+    const adapter = getStorageAdapter()
+    const summary = { imported: 0, skipped: 0, warnings: [] }
+
+    for (const [originalProjectId, versions] of Object.entries(versionsByOriginalProjectId)) {
+      const targetProjectId = projectIdMap[originalProjectId]
+      if (!targetProjectId) {
+        summary.warnings.push(
+          `Dropped ${versions.length} version(s) for unknown project ${originalProjectId}`,
+        )
+        summary.skipped += versions.length
+        continue
+      }
+
+      for (const version of versions) {
+        const remapped = remapVersionForTargetProject(version, targetProjectId)
+        if (!remapped) {
+          summary.skipped += 1
+          summary.warnings.push(
+            `Skipped a malformed version entry for project ${targetProjectId}`,
+          )
+          continue
+        }
+        const key = `scaffold-version-${targetProjectId}-${remapped.id}`
+        try {
+          await adapter.setMeta(key, JSON.stringify(remapped))
+          summary.imported += 1
+        } catch (err) {
+          summary.skipped += 1
+          summary.warnings.push(
+            `Failed to save version ${remapped.id} for project ${targetProjectId}: ${err?.message || err}`,
+          )
+        }
+      }
+    }
+
+    return summary
+  }
+
+  function remapVersionForTargetProject(version, targetProjectId) {
+    if (!version || typeof version !== 'object' || !version.id) return null
+    if (!version.data || !Array.isArray(version.data.projects)) return null
+
+    const remappedData = {
+      ...version.data,
+      projects: version.data.projects.map((proj) => ({
+        ...proj,
+        id: targetProjectId,
+      })),
+    }
+
+    return {
+      id: version.id,
+      projectId: targetProjectId,
+      name: version.name ?? null,
+      timestamp: version.timestamp,
+      trigger: version.trigger || null,
+      stats: version.stats || { items: 0, notes: 0 },
+      data: remappedData,
+    }
   }
 
   async function importFromJSONFile() {
@@ -899,32 +1000,50 @@ export const useOutlineStore = defineStore('outline', () => {
           const text = await file.text()
           const jsonData = JSON.parse(text)
           const importResult = importFromJSON(jsonData)
-          
-          // Merge imported projects with existing ones
+          const warnings = [...(importResult.warnings || [])]
+
+          // Track original-id → final-id so version-history meta keys can be remapped.
+          const projectIdMap = {}
+
           importResult.projects.forEach(importedProject => {
-            // Generate new ID if project already exists
-            const existingProject = projects.value.find(p => p.id === importedProject.id)
+            const originalId = importedProject.id
+            const existingProject = projects.value.find(p => p.id === originalId)
             if (existingProject) {
               importedProject.id = generateId()
               importedProject.name = `${importedProject.name} (Imported)`
             }
-            
-            // Ensure createdAt and updatedAt are set
+            projectIdMap[originalId] = importedProject.id
+
             if (!importedProject.createdAt) {
               importedProject.createdAt = new Date().toISOString()
             }
             if (!importedProject.updatedAt) {
               importedProject.updatedAt = new Date().toISOString()
             }
-            
+
             projects.value.push(importedProject)
           })
-          
+
           persistToStorage()
+
+          let importedVersionCount = 0
+          if (
+            importResult.projectVersions &&
+            Object.keys(importResult.projectVersions).length > 0
+          ) {
+            const summary = await persistImportedVersions(
+              importResult.projectVersions,
+              projectIdMap,
+            )
+            importedVersionCount = summary.imported
+            warnings.push(...summary.warnings)
+          }
+
           resolve({
             success: true,
             imported: importResult.projects.length,
-            warnings: importResult.warnings
+            importedVersions: importedVersionCount,
+            warnings,
           })
         } catch (error) {
           reject(error)

@@ -11,7 +11,7 @@
       <div class="q-pa-md">
         <div class="row items-center q-mb-md">
           <div class="col text-h6">Projects</div>
-          <q-btn round dense flat icon="download" size="sm" @click="exportAllProjects">
+          <q-btn round dense flat icon="download" size="sm" @click="openExportAllDialog">
             <q-tooltip>Export All Projects</q-tooltip>
           </q-btn>
           <q-btn round dense flat icon="upload" size="sm" @click="handleImportJSON">
@@ -220,6 +220,29 @@
         </q-card-actions>
       </q-card>
     </q-dialog>
+
+    <q-dialog v-model="showExportAllDialog">
+      <q-card style="min-width: 380px">
+        <q-card-section>
+          <div class="text-h6">Export All Projects</div>
+        </q-card-section>
+
+        <q-card-section>
+          <q-checkbox
+            v-model="includeVersionHistoryOnExportAll"
+            label="Include version history"
+          />
+          <div class="text-caption text-grey-8 q-mt-xs">
+            Embed all saved versions of every project in the backup. The file will be larger.
+          </div>
+        </q-card-section>
+
+        <q-card-actions align="right">
+          <q-btn flat label="Cancel" @click="showExportAllDialog = false" />
+          <q-btn flat label="Export" color="primary" @click="confirmExportAllProjects" />
+        </q-card-actions>
+      </q-card>
+    </q-dialog>
   </q-drawer>
 </template>
 
@@ -248,6 +271,8 @@ const showDeleteDialog = ref(false)
 const projectToDelete = ref(null)
 const editingProjectId = ref(null)
 const editingProjectName = ref('')
+const showExportAllDialog = ref(false)
+const includeVersionHistoryOnExportAll = ref(false)
 
 /** Bumped on cross-tab lock storage changes so lock state re-evaluates in template. */
 const lockTick = ref(0)
@@ -413,8 +438,34 @@ function updateShowIndentGuides(value) {
   store.setShowIndentGuides(value)
 }
 
-function exportAllProjects() {
-  store.exportAllAsJSON()
+function openExportAllDialog() {
+  if (!projects.value || projects.value.length === 0) {
+    $q.notify({
+      type: 'info',
+      message: 'No projects to export',
+      position: 'top',
+      timeout: 2000,
+    })
+    return
+  }
+  includeVersionHistoryOnExportAll.value = false
+  showExportAllDialog.value = true
+}
+
+async function confirmExportAllProjects() {
+  showExportAllDialog.value = false
+  try {
+    await store.exportAllAsJSON({
+      includeVersionHistory: includeVersionHistoryOnExportAll.value,
+    })
+  } catch (error) {
+    $q.notify({
+      type: 'negative',
+      message: `Export failed: ${error.message}`,
+      position: 'top',
+      timeout: 4000,
+    })
+  }
 }
 
 async function handleImportJSON() {
@@ -422,6 +473,9 @@ async function handleImportJSON() {
     const result = await store.importFromJSONFile()
 
     let message = `Successfully imported ${result.imported} project(s)`
+    if (result.importedVersions) {
+      message += ` and ${result.importedVersions} version snapshot(s)`
+    }
     if (result.warnings && result.warnings.length > 0) {
       message += `\n\nWarnings: ${result.warnings.join(', ')}`
     }
