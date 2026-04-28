@@ -18,11 +18,41 @@
  * @property {(key: string, value: string) => Promise<void>} setMeta
  * @property {(key: string) => Promise<void>} deleteMeta
  * @property {(prefix: string) => Promise<{key: string, value: string}[]>} getMetaEntries
+ *
+ *  -- Media (content-addressable blob store) --
+ * @property {(hash: string, blob: Blob, mime?: string) => Promise<void>} putMedia
+ * @property {(hash: string) => Promise<{hash: string, blob: Blob, mime: string, size: number, createdAt: number, lastUsedAt: number}|null>} getMedia
+ * @property {(hash: string) => Promise<boolean>} hasMedia
+ * @property {(hash: string) => Promise<void>} deleteMedia
+ * @property {() => Promise<string[]>} listMediaHashes
+ * @property {() => Promise<{count: number, bytes: number}>} getMediaStats
  */
+
+const MEDIA_PREFIX = 'scaffold-media-'
+
+function arrayBufferToBase64(buffer) {
+  const bytes = new Uint8Array(buffer)
+  let binary = ''
+  const chunkSize = 0x8000
+  for (let i = 0; i < bytes.length; i += chunkSize) {
+    const chunk = bytes.subarray(i, i + chunkSize)
+    binary += String.fromCharCode.apply(null, chunk)
+  }
+  return btoa(binary)
+}
+
+function base64ToBytes(base64) {
+  const binary = atob(base64 || '')
+  const bytes = new Uint8Array(binary.length)
+  for (let i = 0; i < binary.length; i++) {
+    bytes[i] = binary.charCodeAt(i)
+  }
+  return bytes
+}
 
 /**
  * Create a localStorage-backed storage adapter.
- * This wraps the existing localStorage persistence with the adapter interface.
+ * Used as the test adapter and for legacy migration scenarios.
  */
 export function createLocalStorageAdapter() {
   const META_PREFIX = 'scaffold-meta-'
@@ -96,24 +126,121 @@ export function createLocalStorageAdapter() {
       }
       return entries
     },
+
+    async putMedia(hash, blob, mime) {
+      const buffer = await blob.arrayBuffer()
+      const base64 = arrayBufferToBase64(buffer)
+      const now = Date.now()
+      let createdAt = now
+      const existingRaw = localStorage.getItem(`${MEDIA_PREFIX}${hash}`)
+      if (existingRaw) {
+        try {
+          const existing = JSON.parse(existingRaw)
+          if (typeof existing.createdAt === 'number') {
+            createdAt = existing.createdAt
+          }
+        } catch {
+          // ignore corrupt entry; will overwrite
+        }
+      }
+      const record = {
+        hash,
+        mime: mime || blob.type || 'application/octet-stream',
+        size: blob.size,
+        base64,
+        createdAt,
+        lastUsedAt: now,
+      }
+      localStorage.setItem(`${MEDIA_PREFIX}${hash}`, JSON.stringify(record))
+    },
+
+    async getMedia(hash) {
+      const raw = localStorage.getItem(`${MEDIA_PREFIX}${hash}`)
+      if (!raw) return null
+      try {
+        const record = JSON.parse(raw)
+        const bytes = base64ToBytes(record.base64)
+        const blob = new Blob([bytes], { type: record.mime || 'application/octet-stream' })
+        return {
+          hash: record.hash || hash,
+          blob,
+          mime: record.mime || blob.type,
+          size: typeof record.size === 'number' ? record.size : blob.size,
+          createdAt: record.createdAt || 0,
+          lastUsedAt: record.lastUsedAt || 0,
+        }
+      } catch {
+        return null
+      }
+    },
+
+    async hasMedia(hash) {
+      return localStorage.getItem(`${MEDIA_PREFIX}${hash}`) !== null
+    },
+
+    async deleteMedia(hash) {
+      localStorage.removeItem(`${MEDIA_PREFIX}${hash}`)
+    },
+
+    async listMediaHashes() {
+      const out = []
+      for (let i = 0; i < localStorage.length; i++) {
+        const k = localStorage.key(i)
+        if (k && k.startsWith(MEDIA_PREFIX)) {
+          out.push(k.slice(MEDIA_PREFIX.length))
+        }
+      }
+      return out
+    },
+
+    async getMediaStats() {
+      let count = 0
+      let bytes = 0
+      for (let i = 0; i < localStorage.length; i++) {
+        const k = localStorage.key(i)
+        if (!k || !k.startsWith(MEDIA_PREFIX)) continue
+        count++
+        try {
+          const record = JSON.parse(localStorage.getItem(k))
+          if (record && typeof record.size === 'number') {
+            bytes += record.size
+          }
+        } catch {
+          // ignore corrupt entries
+        }
+      }
+      return { count, bytes }
+    },
   }
 }
 
 const DB_NAME = 'scaffoldDb'
-const DB_VERSION = 1
+const DB_VERSION = 2
 const PROJECTS_STORE = 'projects'
 const META_STORE = 'meta'
+const MEDIA_STORE = 'media'
 
 function openDb(indexedDB = globalThis.indexedDB) {
   return new Promise((resolve, reject) => {
     const request = indexedDB.open(DB_NAME, DB_VERSION)
     request.onupgradeneeded = (event) => {
       const db = event.target.result
-      if (!db.objectStoreNames.contains(PROJECTS_STORE)) {
-        db.createObjectStore(PROJECTS_STORE, { keyPath: 'id' })
+      const oldVersion = event.oldVersion || 0
+
+      if (oldVersion < 1) {
+        if (!db.objectStoreNames.contains(PROJECTS_STORE)) {
+          db.createObjectStore(PROJECTS_STORE, { keyPath: 'id' })
+        }
+        if (!db.objectStoreNames.contains(META_STORE)) {
+          db.createObjectStore(META_STORE, { keyPath: 'key' })
+        }
       }
-      if (!db.objectStoreNames.contains(META_STORE)) {
-        db.createObjectStore(META_STORE, { keyPath: 'key' })
+
+      if (oldVersion < 2) {
+        if (!db.objectStoreNames.contains(MEDIA_STORE)) {
+          const store = db.createObjectStore(MEDIA_STORE, { keyPath: 'hash' })
+          store.createIndex('lastUsedAt', 'lastUsedAt', { unique: false })
+        }
       }
     }
     request.onsuccess = () => resolve(request.result)
@@ -238,6 +365,107 @@ export function createIndexedDbAdapter(indexedDB) {
                 .filter((r) => r.key.startsWith(prefix))
                 .map((r) => ({ key: r.key, value: r.value })),
             )
+          }
+        })
+      })
+    },
+
+    async putMedia(hash, blob, mime) {
+      // Serialize the bytes up front. Storing ArrayBuffer (rather than
+      // Blob directly) gives us identical behavior across real browsers,
+      // fake-indexeddb in tests, and any future structured-clone-light
+      // backends. The cost is one extra ArrayBuffer materialization per
+      // write, which dominates only for very large uploads.
+      const buffer = await blob.arrayBuffer()
+      const db = await getDb()
+      return idbTransaction(db, MEDIA_STORE, 'readwrite', (tx) => {
+        const store = tx.objectStore(MEDIA_STORE)
+        const getReq = store.get(hash)
+        return new Promise((resolve, reject) => {
+          getReq.onsuccess = () => {
+            const existing = getReq.result
+            const now = Date.now()
+            const record = {
+              hash,
+              buffer,
+              mime: mime || blob.type || 'application/octet-stream',
+              size: typeof blob.size === 'number' ? blob.size : buffer.byteLength,
+              createdAt: existing?.createdAt || now,
+              lastUsedAt: now,
+            }
+            const putReq = store.put(record)
+            putReq.onsuccess = () => resolve()
+            putReq.onerror = () => reject(putReq.error)
+          }
+          getReq.onerror = () => reject(getReq.error)
+        })
+      })
+    },
+
+    async getMedia(hash) {
+      const db = await getDb()
+      const tx = db.transaction(MEDIA_STORE, 'readonly')
+      const record = await idbRequest(tx.objectStore(MEDIA_STORE).get(hash))
+      if (!record) return null
+
+      const mime = record.mime || record.blob?.type || 'application/octet-stream'
+      let blob
+      if (record.buffer) {
+        blob = new Blob([record.buffer], { type: mime })
+      } else if (record.blob) {
+        blob = record.blob
+      } else {
+        return null
+      }
+
+      return {
+        hash: record.hash,
+        blob,
+        mime,
+        size: typeof record.size === 'number' ? record.size : blob.size || 0,
+        createdAt: record.createdAt || 0,
+        lastUsedAt: record.lastUsedAt || 0,
+      }
+    },
+
+    async hasMedia(hash) {
+      const db = await getDb()
+      const tx = db.transaction(MEDIA_STORE, 'readonly')
+      const result = await idbRequest(tx.objectStore(MEDIA_STORE).getKey(hash))
+      return result !== undefined
+    },
+
+    async deleteMedia(hash) {
+      const db = await getDb()
+      await idbTransaction(db, MEDIA_STORE, 'readwrite', (tx) => {
+        tx.objectStore(MEDIA_STORE).delete(hash)
+      })
+    },
+
+    async listMediaHashes() {
+      const db = await getDb()
+      const tx = db.transaction(MEDIA_STORE, 'readonly')
+      const keys = await idbRequest(tx.objectStore(MEDIA_STORE).getAllKeys())
+      return Array.isArray(keys) ? keys : []
+    },
+
+    async getMediaStats() {
+      const db = await getDb()
+      return idbTransaction(db, MEDIA_STORE, 'readonly', (tx) => {
+        const store = tx.objectStore(MEDIA_STORE)
+        const req = store.getAll()
+        return new Promise((resolve) => {
+          req.onsuccess = () => {
+            const records = req.result || []
+            let bytes = 0
+            for (const record of records) {
+              if (record && typeof record.size === 'number') {
+                bytes += record.size
+              } else if (record?.blob?.size) {
+                bytes += record.blob.size
+              }
+            }
+            resolve({ count: records.length, bytes })
           }
         })
       })
