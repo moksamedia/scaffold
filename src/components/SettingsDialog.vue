@@ -958,18 +958,53 @@
         <q-separator />
 
         <q-card-section class="q-pt-md">
-          <div class="text-caption text-grey-7 q-mb-sm">
-            Showing {{ diagnosticsEntryCount }} recent log
-            {{ diagnosticsEntryCount === 1 ? 'entry' : 'entries' }} (newest first).
+          <div class="row q-col-gutter-sm items-center q-mb-sm">
+            <div class="col-12 col-md-auto">
+              <q-btn-toggle
+                v-model="logViewerLevels"
+                :options="logViewerLevelOptions"
+                multiple
+                no-caps
+                spread
+                dense
+                rounded
+                toggle-color="primary"
+                color="white"
+                text-color="grey-8"
+              />
+            </div>
+            <div class="col-12 col-md">
+              <q-input
+                v-model="logViewerSearch"
+                dense
+                outlined
+                clearable
+                placeholder="Filter events, keys, or values…"
+              >
+                <template v-slot:prepend>
+                  <q-icon name="search" />
+                </template>
+              </q-input>
+            </div>
+            <div class="col-12 col-md-auto text-caption text-grey-7">
+              Showing {{ filteredDiagnosticsEntries.length }} of
+              {{ diagnosticsEntryCount }}
+            </div>
           </div>
 
           <div v-if="diagnosticsEntryCount === 0" class="text-grey-7">
             No logs captured yet.
           </div>
+          <div
+            v-else-if="filteredDiagnosticsEntries.length === 0"
+            class="text-grey-7"
+          >
+            No log entries match the current filters.
+          </div>
 
           <div v-else class="log-viewer-list">
             <q-card
-              v-for="(entry, index) in diagnosticsEntries"
+              v-for="(entry, index) in filteredDiagnosticsEntries"
               :key="`${entry.ts}-${entry.event}-${index}`"
               flat
               bordered
@@ -990,7 +1025,31 @@
               </q-card-section>
               <q-separator />
               <q-card-section class="q-pt-sm">
-                <pre class="log-json">{{ formatLogEntry(entry) }}</pre>
+                <div v-if="entryRows(entry).length === 0" class="text-caption text-grey-6">
+                  (no additional fields)
+                </div>
+                <div v-else class="log-fields">
+                  <div
+                    v-for="(row, rowIdx) in entryRows(entry)"
+                    :key="rowIdx"
+                    class="log-row"
+                    :style="{ paddingLeft: `${row.depth * 16}px` }"
+                  >
+                    <span class="log-key">{{ row.key }}</span>
+                    <span class="log-sep">:</span>
+                    <template v-if="row.kind === 'container'">
+                      <span class="log-meta">{{ row.value }}</span>
+                    </template>
+                    <template v-else-if="row.kind === 'multiline'">
+                      <pre class="log-multiline">{{ row.value }}</pre>
+                    </template>
+                    <template v-else>
+                      <span :class="['log-value', `log-value--${row.type}`]">
+                        {{ row.value }}
+                      </span>
+                    </template>
+                  </div>
+                </div>
               </q-card-section>
             </q-card>
           </div>
@@ -1475,6 +1534,54 @@ const diagnosticsEntries = computed(() => {
 })
 const diagnosticsEntryCount = computed(() => diagnosticsEntries.value.length)
 
+const logViewerLevels = ref(['debug', 'info', 'error'])
+const logViewerLevelOptions = [
+  { label: 'Debug', value: 'debug' },
+  { label: 'Info', value: 'info' },
+  { label: 'Error', value: 'error' },
+]
+const logViewerSearch = ref('')
+
+function entryMatchesSearch(entry, query) {
+  if (!query) return true
+  const needle = query.toLowerCase()
+  const stack = [entry]
+  const seen = new WeakSet()
+  while (stack.length > 0) {
+    const node = stack.pop()
+    if (node === null || node === undefined) continue
+    const t = typeof node
+    if (t === 'string') {
+      if (node.toLowerCase().includes(needle)) return true
+    } else if (t === 'number' || t === 'boolean' || t === 'bigint') {
+      if (String(node).toLowerCase().includes(needle)) return true
+    } else if (t === 'object') {
+      if (seen.has(node)) continue
+      seen.add(node)
+      if (Array.isArray(node)) {
+        for (const item of node) stack.push(item)
+      } else {
+        for (const [key, value] of Object.entries(node)) {
+          if (key.toLowerCase().includes(needle)) return true
+          stack.push(value)
+        }
+      }
+    }
+  }
+  return false
+}
+
+const filteredDiagnosticsEntries = computed(() => {
+  const allowedLevels = logViewerLevels.value
+  const query = (logViewerSearch.value || '').trim()
+  return diagnosticsEntries.value.filter((entry) => {
+    if (allowedLevels.length > 0 && !allowedLevels.includes(entry.level)) {
+      return false
+    }
+    return entryMatchesSearch(entry, query)
+  })
+})
+
 function setDiagnosticsRefreshTimer(enabled) {
   if (diagnosticsRefreshTimerId) {
     clearInterval(diagnosticsRefreshTimerId)
@@ -1507,8 +1614,75 @@ function updateLogLevel(level) {
   })
 }
 
-function formatLogEntry(entry) {
-  return JSON.stringify(entry, null, 2)
+const LOG_HEADER_KEYS = new Set(['level', 'event', 'ts'])
+
+function describeContainer(value) {
+  if (Array.isArray(value)) {
+    return `[ ${value.length} item${value.length === 1 ? '' : 's'} ]`
+  }
+  const count = Object.keys(value).length
+  return `{ ${count} field${count === 1 ? '' : 's'} }`
+}
+
+function formatPrimitive(value) {
+  if (value === null) return 'null'
+  if (value === undefined) return 'undefined'
+  if (typeof value === 'string') return value
+  if (typeof value === 'number' || typeof value === 'boolean' || typeof value === 'bigint') {
+    return String(value)
+  }
+  return String(value)
+}
+
+function primitiveType(value) {
+  if (value === null) return 'null'
+  if (value === undefined) return 'undefined'
+  return typeof value
+}
+
+function entryRows(entry) {
+  const rows = []
+  function walk(node, depth) {
+    if (Array.isArray(node)) {
+      node.forEach((item, idx) => {
+        const key = `[${idx}]`
+        if (item && typeof item === 'object') {
+          rows.push({ depth, key, kind: 'container', value: describeContainer(item) })
+          walk(item, depth + 1)
+        } else {
+          const raw = formatPrimitive(item)
+          const isMultiline = typeof item === 'string' && item.includes('\n')
+          rows.push({
+            depth,
+            key,
+            kind: isMultiline ? 'multiline' : 'primitive',
+            type: primitiveType(item),
+            value: raw,
+          })
+        }
+      })
+      return
+    }
+    for (const [key, value] of Object.entries(node)) {
+      if (depth === 0 && LOG_HEADER_KEYS.has(key)) continue
+      if (value && typeof value === 'object') {
+        rows.push({ depth, key, kind: 'container', value: describeContainer(value) })
+        walk(value, depth + 1)
+      } else {
+        const raw = formatPrimitive(value)
+        const isMultiline = typeof value === 'string' && value.includes('\n')
+        rows.push({
+          depth,
+          key,
+          kind: isMultiline ? 'multiline' : 'primitive',
+          type: primitiveType(value),
+          value: raw,
+        })
+      }
+    }
+  }
+  walk(entry, 0)
+  return rows
 }
 
 function logLevelBadgeColor(level) {
@@ -2106,14 +2280,85 @@ watch(activeTab, (tab) => {
   padding-right: 4px;
 }
 
-.log-json {
-  margin: 0;
+.log-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12.5px;
+  line-height: 1.45;
+}
+
+.log-row {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 6px;
+  border-left: 2px solid #eceff1;
+  padding-top: 1px;
+  padding-bottom: 1px;
+}
+
+.log-key {
+  font-family:
+    ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, 'Liberation Mono',
+    monospace;
+  font-weight: 600;
+  color: #37474f;
+  letter-spacing: 0.01em;
+}
+
+.log-sep {
+  color: #90a4ae;
+}
+
+.log-meta {
+  color: #607d8b;
+  font-style: italic;
+  font-size: 11.5px;
+}
+
+.log-value {
+  font-family:
+    ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, 'Liberation Mono',
+    monospace;
+  word-break: break-word;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.log-value--string {
+  color: #2e7d32;
+}
+
+.log-value--number,
+.log-value--bigint {
+  color: #1565c0;
+}
+
+.log-value--boolean {
+  color: #ef6c00;
+  font-weight: 600;
+}
+
+.log-value--null,
+.log-value--undefined {
+  color: #9e9e9e;
+  font-style: italic;
+}
+
+.log-multiline {
+  margin: 4px 0 4px 0;
+  padding: 6px 8px;
+  background: #f5f5f5;
+  border-radius: 4px;
   white-space: pre-wrap;
   word-break: break-word;
   font-family:
     ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, 'Liberation Mono',
     monospace;
   font-size: 12px;
-  line-height: 1.35;
+  line-height: 1.4;
+  flex: 1 1 100%;
+  max-width: 100%;
 }
 </style>
