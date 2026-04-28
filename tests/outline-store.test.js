@@ -648,6 +648,57 @@ describe('Outline Store', () => {
         resetMediaAdapter()
       }
     })
+
+    it("marks inRemote: 'unknown' when listRemoteHashes fails on a layered backend", async () => {
+      const item = makeItem({
+        id: 'i1',
+        longNotes: [
+          makeNote('ln1', `<img src="scaffold-media://${HASH_IMG}" />`),
+        ],
+      })
+      seedStore([makeProject({ id: 'p1', lists: [item] })])
+      const store = await getStore()
+
+      setMediaAdapter({
+        has: async () => false,
+        get: async () => null,
+        put: async () => {},
+        delete: async () => {},
+        listHashes: async () => [],
+        getStats: async () => ({ count: 0, bytes: 0 }),
+        listCachedHashes: async () => [HASH_IMG],
+        listRemoteHashes: async () => {
+          throw new TypeError('NetworkError when attempting to fetch resource.')
+        },
+        getCached: async () => ({
+          blob: new Blob([new Uint8Array(100)], { type: 'image/png' }),
+          mime: 'image/png',
+          size: 100,
+          createdAt: 0,
+        }),
+        backfillRemoteFromCache: async () => ({
+          checked: 0,
+          uploaded: 0,
+          skipped: 0,
+          failed: 0,
+        }),
+      })
+      try {
+        const inventory = await store.getProjectMediaInventory('p1')
+        expect(inventory).toHaveLength(1)
+        // Cache lookup still succeeded so we know the bytes are local;
+        // remote tier is "unknown" rather than null (which would imply
+        // a local-only backend) or false (which would imply a definite
+        // miss on the remote).
+        expect(inventory[0]).toMatchObject({
+          hash: HASH_IMG,
+          inCache: true,
+          inRemote: 'unknown',
+        })
+      } finally {
+        resetMediaAdapter()
+      }
+    })
   })
 
   // ─── Outline operations ────────────────────────────────────────

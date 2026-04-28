@@ -470,8 +470,16 @@ export const useOutlineStore = defineStore('outline', () => {
    * @property {number} size - bytes (0 when only available on remote
    *   and we can't stat it cheaply, or when not stored anywhere).
    * @property {boolean} inCache
-   * @property {boolean | null} inRemote - null when the active
-   *   backend has no remote tier (purely local IDB / OPFS / folder).
+   * @property {boolean | null | 'unknown'} inRemote - tri-state:
+   *   - `null` when the active backend has no remote tier (purely
+   *     local IDB / OPFS / folder)
+   *   - `true` / `false` when the remote tier responded and we know
+   *     for sure whether the hash is on it
+   *   - `'unknown'` when the active backend HAS a remote tier but
+   *     `listRemoteHashes()` failed (e.g. CORS misconfiguration,
+   *     offline, expired credentials). The Settings dialog uses this
+   *     to render an "S3 unreachable" banner instead of the
+   *     misleading "Stored locally" badge.
    */
 
   /**
@@ -584,7 +592,17 @@ export const useOutlineStore = defineStore('outline', () => {
       // have one — handles the (rare) case where get() failed
       // transiently but the blob is in fact present.
       if (cacheHashes !== null) inCache = cacheHashes.has(hash)
-      const inRemote = remoteHashes !== null ? remoteHashes.has(hash) : null
+      let inRemote
+      if (remoteHashes !== null) {
+        inRemote = remoteHashes.has(hash)
+      } else if (isLayered) {
+        // Backend has a remote tier but the LIST call failed (CORS,
+        // offline, expired creds). Surface this distinctly so the UI
+        // can show "S3 unreachable" instead of the local-only label.
+        inRemote = 'unknown'
+      } else {
+        inRemote = null
+      }
       inventory.push({ hash, kind, mime, size, inCache, inRemote })
     }
     return inventory

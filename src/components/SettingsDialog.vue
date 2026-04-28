@@ -561,6 +561,30 @@
             </q-expansion-item>
 
             <q-banner
+              v-if="currentProject && projectHasRemoteUnreachable"
+              rounded
+              class="bg-red-1 text-red-10 q-mb-lg"
+            >
+              <template v-slot:avatar>
+                <q-icon name="error" color="negative" />
+              </template>
+              <div class="text-subtitle2">Can't reach your S3 bucket</div>
+              <div class="text-body2">
+                Scaffold is connected to
+                <strong>{{ s3ConfigState.bucket || 'your bucket' }}</strong>
+                but the browser blocked the request. This is almost
+                always a CORS configuration issue on the bucket — check
+                that the bucket allows
+                <code>GET, HEAD, PUT, POST, DELETE</code>
+                from this site's origin and exposes <code>ETag</code>
+                and <code>Content-Length</code>. See
+                <code>GCS_S3_SETUP.md</code> /
+                <code>R2_S3_SETUP.md</code> in the project for the full
+                policy. Until this is resolved, media stays on this
+                device and badges below show "S3 unreachable".
+              </div>
+            </q-banner>
+            <q-banner
               v-if="currentProject && projectUnsyncedHashes.size > 0"
               rounded
               class="bg-amber-1 text-amber-10 q-mb-lg"
@@ -975,6 +999,13 @@ const showProjectMediaList = ref(false)
 const projectLocalOnlyMediaCount = computed(() =>
   projectMediaInventory.value.filter((entry) => entry.inCache && entry.inRemote !== true).length,
 )
+// True when the project references at least one media hash and the
+// active layered backend's remote-listing call failed. Distinct from
+// "no S3 configured" — it means S3 is set up but the bucket isn't
+// reachable from the browser (typically a CORS misconfiguration).
+const projectHasRemoteUnreachable = computed(() =>
+  projectMediaInventory.value.some((entry) => entry.inRemote === 'unknown'),
+)
 
 // Media storage backend UI state
 const userFolderApiAvailable = ref(false)
@@ -1107,6 +1138,7 @@ const s3ConfigState = ref({
   mode: null,
   unlocked: false,
   sharedBucket: false,
+  bucket: '',
 })
 const isSavingS3 = ref(false)
 
@@ -1125,7 +1157,7 @@ async function refreshS3State() {
   try {
     const stored = await loadS3Config()
     if (!stored?.publicConfig) {
-      s3ConfigState.value = { configured: false, mode: null, unlocked: false, sharedBucket: false }
+      s3ConfigState.value = { configured: false, mode: null, unlocked: false, sharedBucket: false, bucket: '' }
       rememberS3UnlockPassphraseChecked.value = false
       return
     }
@@ -1175,6 +1207,7 @@ async function refreshS3State() {
       mode: stored.publicConfig.mode,
       unlocked: !!credentials?.secretAccessKey,
       sharedBucket: Boolean(stored.publicConfig.sharedBucket),
+      bucket: stored.publicConfig.bucket || '',
     }
     s3Form.value = {
       ...s3Form.value,
@@ -1613,6 +1646,9 @@ function mediaLocationLabel(entry) {
   if (entry.inRemote === null) {
     return entry.inCache ? 'Stored locally' : 'Missing'
   }
+  if (entry.inRemote === 'unknown') {
+    return entry.inCache ? 'Local cache (S3 unreachable)' : 'S3 unreachable'
+  }
   if (entry.inCache && entry.inRemote) return 'Local cache + S3'
   if (entry.inCache) return 'Local cache only'
   if (entry.inRemote) return 'On S3 only'
@@ -1622,6 +1658,9 @@ function mediaLocationLabel(entry) {
 function mediaLocationColor(entry) {
   if (entry.inRemote === null) {
     return entry.inCache ? 'positive' : 'negative'
+  }
+  if (entry.inRemote === 'unknown') {
+    return 'negative'
   }
   if (entry.inCache && entry.inRemote) return 'positive'
   if (entry.inCache) return 'warning'
