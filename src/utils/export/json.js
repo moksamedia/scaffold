@@ -200,13 +200,42 @@ function normalizeImportedItems(items = [], parentId = null) {
   })
 }
 
-export function downloadJSON(data, filename = 'outline') {
+// Download a JSON payload. Uses the File System Access API's
+// `showSaveFilePicker` when available so users see a true Save dialog
+// and choose where the file lands; falls back to the classic
+// anchor-click download otherwise. Returns a promise so callers can
+// chain UX (notifications, etc.).
+export async function downloadJSON(data, filename = 'outline') {
   const jsonString = JSON.stringify(data, null, 2)
+  const safeName = `${filename.replace(/[^a-z0-9]/gi, '_')}.json`
   const blob = new Blob([jsonString], { type: 'application/json' })
+
+  if (typeof window !== 'undefined' && typeof window.showSaveFilePicker === 'function') {
+    try {
+      const handle = await window.showSaveFilePicker({
+        suggestedName: safeName,
+        types: [
+          {
+            description: 'Scaffold JSON export',
+            accept: { 'application/json': ['.json'] },
+          },
+        ],
+      })
+      const writable = await handle.createWritable()
+      await writable.write(blob)
+      await writable.close()
+      return
+    } catch (error) {
+      // User cancelled — bail silently. Any other error falls through
+      // to the anchor-click fallback below.
+      if (error?.name === 'AbortError') return
+    }
+  }
+
   const url = URL.createObjectURL(blob)
   const link = document.createElement('a')
   link.href = url
-  link.download = `${filename.replace(/[^a-z0-9]/gi, '_')}.json`
+  link.download = safeName
   document.body.appendChild(link)
   link.click()
   document.body.removeChild(link)
@@ -524,7 +553,7 @@ export async function exportSingleProjectAsJSON(project, options = {}) {
   await attachMediaPayload(exportData)
   const filename = `${project.name}_outline_${getFilenameTimestamp()}`
 
-  downloadJSON(exportData, filename)
+  await downloadJSON(exportData, filename)
 }
 
 // Utility function to export all projects
@@ -535,5 +564,5 @@ export async function exportAllProjectsAsJSON(projects, options = {}) {
   await attachMediaPayload(exportData)
   const filename = `outline_maker_backup_${getFilenameTimestamp()}`
 
-  downloadJSON(exportData, filename)
+  await downloadJSON(exportData, filename)
 }

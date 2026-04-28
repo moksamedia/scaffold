@@ -164,6 +164,73 @@
                 />
               </div>
             </div>
+
+            <q-separator class="q-my-md" />
+
+            <div class="q-mb-lg">
+              <div class="text-subtitle1 q-mb-sm">Media Storage</div>
+              <div class="text-caption text-grey-8 q-mb-sm">
+                Active backend: <strong>{{ mediaBackendLabel }}</strong>
+                <span class="q-ml-sm">
+                  ({{ mediaUsage.count }} files,
+                  {{ formatBytes(mediaUsage.bytes) }})
+                </span>
+              </div>
+
+              <div v-if="!userFolderApiAvailable" class="text-caption text-grey-7 q-mb-sm">
+                Choosing a folder for media storage requires a Chromium-based browser
+                (Chrome, Edge, or Brave). Other browsers will continue to use
+                <span v-if="opfsApiAvailable">the Origin Private File System</span>
+                <span v-else>IndexedDB</span> automatically.
+              </div>
+
+              <div v-else class="q-mb-sm">
+                <div v-if="userFolderConfigured" class="row items-center q-gutter-sm">
+                  <q-icon name="folder" color="primary" />
+                  <span class="text-body2">
+                    Media is being stored in a folder you chose.
+                    <span
+                      v-if="userFolderPermissionState && userFolderPermissionState !== 'granted'"
+                      class="text-warning"
+                    >
+                      (Permission needs to be re-granted on next upload.)
+                    </span>
+                  </span>
+                  <q-space />
+                  <q-btn
+                    flat
+                    dense
+                    color="primary"
+                    label="Change folder…"
+                    :loading="isPickingFolder"
+                    @click="chooseMediaFolder"
+                  />
+                  <q-btn
+                    flat
+                    dense
+                    color="negative"
+                    label="Disconnect"
+                    @click="disconnectMediaFolder"
+                  />
+                </div>
+
+                <div v-else class="row items-center q-gutter-sm">
+                  <q-icon name="info" color="grey-7" />
+                  <span class="text-body2">
+                    By default, media stays inside the browser. You can store it in
+                    a folder of your choice instead — useful for syncing via
+                    iCloud, Dropbox, etc.
+                  </span>
+                  <q-space />
+                  <q-btn
+                    color="primary"
+                    label="Choose folder…"
+                    :loading="isPickingFolder"
+                    @click="chooseMediaFolder"
+                  />
+                </div>
+              </div>
+            </div>
           </q-tab-panel>
 
           <!-- Project Settings Tab -->
@@ -442,6 +509,15 @@ import { useQuasar } from 'quasar'
 import { getStorageAdapter } from 'src/utils/storage/index.js'
 import { getMediaAdapter } from 'src/utils/media/index.js'
 import { extractRefHashesFromHtml } from 'src/utils/media/references.js'
+import { downloadJSON as downloadJSONShared } from 'src/utils/export/json.js'
+import {
+  isUserFolderApiAvailable,
+  pickUserFolder,
+  loadUserFolderHandle,
+  clearUserFolderHandle,
+  ensureUserFolderPermission,
+} from 'src/utils/media/userfolder-adapter.js'
+import { isOpfsAvailable } from 'src/utils/media/opfs-adapter.js'
 
 const props = defineProps({
   modelValue: {
@@ -466,8 +542,9 @@ const {
   nonTibetanFontFamily,
   nonTibetanFontSize,
   nonTibetanFontColor,
-} =
-  storeToRefs(store)
+  mediaBackend,
+  mediaUsage,
+} = storeToRefs(store)
 
 const showDialog = computed({
   get: () => props.modelValue,
@@ -519,6 +596,96 @@ const fontSizeOptions = Array.from({ length: 37 }, (_, i) => {
 })
 
 const projectMediaUsage = ref({ imageBytes: 0, audioBytes: 0 })
+
+// Media storage backend UI state
+const userFolderApiAvailable = ref(false)
+const opfsApiAvailable = ref(false)
+const userFolderConfigured = ref(false)
+const userFolderPermissionState = ref(null)
+const isPickingFolder = ref(false)
+
+const mediaBackendLabel = computed(() => {
+  switch (mediaBackend.value) {
+    case 'userfolder+idb':
+      return 'User-picked folder (with IndexedDB fallback)'
+    case 'opfs+idb':
+      return 'Origin Private File System (with IndexedDB fallback)'
+    case 'idb':
+      return 'IndexedDB (browser-managed)'
+    default:
+      return mediaBackend.value || 'Unknown'
+  }
+})
+
+async function refreshMediaBackendState() {
+  userFolderApiAvailable.value = isUserFolderApiAvailable()
+  opfsApiAvailable.value = isOpfsAvailable()
+  if (!userFolderApiAvailable.value) {
+    userFolderConfigured.value = false
+    userFolderPermissionState.value = null
+    return
+  }
+  try {
+    const handle = await loadUserFolderHandle()
+    userFolderConfigured.value = !!handle
+    userFolderPermissionState.value = handle
+      ? await ensureUserFolderPermission(handle, { interactive: false })
+      : null
+  } catch (error) {
+    console.warn('Failed to inspect user-folder handle:', error)
+    userFolderConfigured.value = false
+    userFolderPermissionState.value = null
+  }
+}
+
+async function chooseMediaFolder() {
+  if (!userFolderApiAvailable.value) return
+  isPickingFolder.value = true
+  try {
+    await pickUserFolder()
+    await store.reselectMediaBackend()
+    await refreshMediaBackendState()
+    $q.notify({
+      type: 'positive',
+      message: 'Media folder set. New uploads will be saved there.',
+      position: 'top',
+      timeout: 3000,
+    })
+  } catch (error) {
+    if (error?.name === 'AbortError') return
+    console.warn('Failed to choose media folder:', error)
+    $q.notify({
+      type: 'negative',
+      message: error?.message || 'Could not set the media folder.',
+      position: 'top',
+      timeout: 4000,
+    })
+  } finally {
+    isPickingFolder.value = false
+  }
+}
+
+async function disconnectMediaFolder() {
+  try {
+    await clearUserFolderHandle()
+    await store.reselectMediaBackend()
+    await refreshMediaBackendState()
+    $q.notify({
+      type: 'info',
+      message: 'Media folder disconnected. Reverting to default storage.',
+      position: 'top',
+      timeout: 3000,
+    })
+  } catch (error) {
+    console.warn('Failed to disconnect media folder:', error)
+    $q.notify({
+      type: 'negative',
+      message: 'Could not disconnect the media folder.',
+      position: 'top',
+      timeout: 4000,
+    })
+  }
+}
 
 const projectStorageUsage = computed(() => {
   if (!currentProject.value) {
@@ -635,6 +802,7 @@ onMounted(async () => {
   await loadProgramSettings()
   await loadVersions()
   await refreshProjectMediaUsage()
+  await refreshMediaBackendState()
 })
 
 watch(currentProject, async () => {
@@ -647,6 +815,7 @@ watch(currentProject, async () => {
 watch(showDialog, async (visible) => {
   if (visible) {
     await refreshProjectMediaUsage()
+    await refreshMediaBackendState()
   }
 })
 
@@ -736,7 +905,7 @@ function restoreVersion(version) {
   })
 }
 
-function exportVersion(version) {
+async function exportVersion(version) {
   if (!version.data) return
 
   // Create filename with version info
@@ -747,8 +916,7 @@ function exportVersion(version) {
   const versionName = version.name ? `_${version.name.replace(/[^a-z0-9]/gi, '_')}` : ''
   const filename = `${projectName.replace(/[^a-z0-9]/gi, '_')}_version_${timestamp}${versionName}`
 
-  // Use the same download function as the main JSON export
-  downloadJSON(version.data, filename)
+  await downloadJSONShared(version.data, filename)
 
   $q.notify({
     type: 'positive',
@@ -756,19 +924,6 @@ function exportVersion(version) {
     position: 'top',
     timeout: 2000,
   })
-}
-
-function downloadJSON(data, filename) {
-  const jsonString = JSON.stringify(data, null, 2)
-  const blob = new Blob([jsonString], { type: 'application/json' })
-  const url = URL.createObjectURL(blob)
-  const link = document.createElement('a')
-  link.href = url
-  link.download = `${filename.replace(/[^a-z0-9]/gi, '_')}.json`
-  document.body.appendChild(link)
-  link.click()
-  document.body.removeChild(link)
-  URL.revokeObjectURL(url)
 }
 
 function deleteVersion(version) {

@@ -60,6 +60,7 @@ export const useOutlineStore = defineStore('outline', () => {
 
   /** Aggregate media-store usage (count of blobs + total bytes) for Settings. */
   const mediaUsage = ref({ count: 0, bytes: 0 })
+  const mediaBackend = ref('idb')
   let mediaGcTimer = null
   /** Idle GC frequency. Tests can stub setInterval to verify wiring. */
   const MEDIA_GC_INTERVAL_MS = 10 * 60 * 1000
@@ -1256,6 +1257,21 @@ export const useOutlineStore = defineStore('outline', () => {
     }
   }
 
+  // Re-run capability-based media backend selection. Used by the
+  // Settings UI after a user picks (or clears) a custom media folder
+  // so the active adapter immediately reflects the new choice.
+  async function reselectMediaBackend() {
+    try {
+      const result = await selectMediaAdapter()
+      mediaBackend.value = result?.backend || 'idb'
+      await refreshMediaUsage()
+      return mediaBackend.value
+    } catch (error) {
+      console.warn('Media adapter reselection failed:', error)
+      return mediaBackend.value
+    }
+  }
+
   function startMediaGcTimer() {
     if (mediaGcTimer !== null) return
     if (typeof setInterval !== 'function') return
@@ -1809,7 +1825,8 @@ export const useOutlineStore = defineStore('outline', () => {
     // Tests that have already stubbed the adapter via setMediaAdapter
     // can skip this safely (the stub remains, IDB path is a no-op).
     try {
-      await selectMediaAdapter()
+      const initial = await selectMediaAdapter()
+      mediaBackend.value = initial?.backend || 'idb'
     } catch (error) {
       console.warn('Media adapter selection failed; using default:', error)
     }
@@ -1895,8 +1912,10 @@ export const useOutlineStore = defineStore('outline', () => {
     storageUsageWarning,
     storageUsageRatio,
     mediaUsage,
+    mediaBackend,
     refreshMediaUsage,
     triggerMediaGc,
+    reselectMediaBackend,
     stopMediaGcTimer,
     exportAsMarkdown: exportProjectAsMarkdown,
     exportAsDocx: exportProjectAsDocx,
