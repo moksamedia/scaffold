@@ -1131,7 +1131,6 @@ async function refreshS3State() {
     }
     const rememberedPassphrase = getRememberedS3UnlockPassphrase()
     rememberS3UnlockPassphraseChecked.value = Boolean(rememberedPassphrase)
-    const hadCredsBefore = !!getS3Credentials()?.secretAccessKey
     let didAutoUnlock = false
     if (
       stored.publicConfig.mode === 'persisted' &&
