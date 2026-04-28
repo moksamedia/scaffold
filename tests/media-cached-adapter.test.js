@@ -150,6 +150,28 @@ describe('createCachingMediaAdapter', () => {
       expect(await wrapped.listRemoteHashes()).toEqual(['in-remote'])
     })
 
+    it('getCached reads only from the cache (no remote fallthrough)', async () => {
+      const blob = new Blob([new Uint8Array([1, 2])], { type: 'image/png' })
+      remote.store.set('only-remote', { blob, mime: 'image/png', size: 2, createdAt: 0 })
+      cache.store.set('local', { blob, mime: 'image/png', size: 2, createdAt: 0 })
+
+      let remoteGetCalls = 0
+      const originalRemoteGet = remote.get
+      remote.get = async (hash) => {
+        remoteGetCalls++
+        return originalRemoteGet(hash)
+      }
+
+      expect(await wrapped.getCached('local')).toEqual(
+        expect.objectContaining({ mime: 'image/png', size: 2 }),
+      )
+      expect(await wrapped.getCached('only-remote')).toBeNull()
+      // Crucially: the cache miss did NOT trigger a remote fetch.
+      expect(remoteGetCalls).toBe(0)
+      // ... and the cache was not silently populated either.
+      expect(cache.store.has('only-remote')).toBe(false)
+    })
+
     it('uploads cache-only hashes to remote and skips ones already there', async () => {
       seedBlob(cache, 'a')
       seedBlob(cache, 'b')

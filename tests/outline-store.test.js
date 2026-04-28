@@ -476,6 +476,180 @@ describe('Outline Store', () => {
     })
   })
 
+  // ─── Project media inventory (Settings list view) ────────────────
+  describe('getProjectMediaInventory', () => {
+    const HASH_IMG = '1'.repeat(64)
+    const HASH_AUD = '2'.repeat(64)
+    const HASH_BARE = '3'.repeat(64)
+
+    function makeNote(id, html) {
+      return { id, text: html, collapsed: false }
+    }
+
+    it('returns an empty array for unknown projects', async () => {
+      const store = await getStore()
+      expect(await store.getProjectMediaInventory('does-not-exist')).toEqual([])
+    })
+
+    it('returns an empty array for projects with no long-note media', async () => {
+      seedStore([makeProject({ id: 'p1', lists: [makeItem({ id: 'i1', text: 'no media' })] })])
+      const store = await getStore()
+      expect(await store.getProjectMediaInventory('p1')).toEqual([])
+    })
+
+    it('classifies image / audio / unknown refs and reads size+mime via the adapter', async () => {
+      const item = makeItem({
+        id: 'i1',
+        longNotes: [
+          makeNote(
+            'ln1',
+            `<p><img src="scaffold-media://${HASH_IMG}" /></p>` +
+              `<p><audio src="scaffold-media://${HASH_AUD}"></audio></p>` +
+              `<p>raw ref: scaffold-media://${HASH_BARE}</p>`,
+          ),
+        ],
+      })
+      seedStore([makeProject({ id: 'p1', lists: [item] })])
+      const store = await getStore()
+
+      const blobs = {
+        [HASH_IMG]: { mime: 'image/png', size: 1234 },
+        [HASH_AUD]: { mime: 'audio/mpeg', size: 5678 },
+      }
+      setMediaAdapter({
+        has: async () => false,
+        get: async (h) =>
+          blobs[h]
+            ? {
+                blob: new Blob([new Uint8Array(blobs[h].size)], { type: blobs[h].mime }),
+                mime: blobs[h].mime,
+                size: blobs[h].size,
+                createdAt: 0,
+              }
+            : null,
+        put: async () => {},
+        delete: async () => {},
+        listHashes: async () => [],
+        getStats: async () => ({ count: 0, bytes: 0 }),
+      })
+      try {
+        const inventory = await store.getProjectMediaInventory('p1')
+        const byHash = Object.fromEntries(inventory.map((e) => [e.hash, e]))
+
+        expect(byHash[HASH_IMG]).toEqual({
+          hash: HASH_IMG,
+          kind: 'image',
+          mime: 'image/png',
+          size: 1234,
+          inCache: true,
+          inRemote: null,
+        })
+        expect(byHash[HASH_AUD]).toEqual({
+          hash: HASH_AUD,
+          kind: 'audio',
+          mime: 'audio/mpeg',
+          size: 5678,
+          inCache: true,
+          inRemote: null,
+        })
+        // Bare reference (not inside img/audio) is still listed,
+        // classified as unknown, with size 0 because the adapter
+        // doesn't have it.
+        expect(byHash[HASH_BARE]).toEqual({
+          hash: HASH_BARE,
+          kind: 'unknown',
+          mime: null,
+          size: 0,
+          inCache: false,
+          inRemote: null,
+        })
+      } finally {
+        resetMediaAdapter()
+      }
+    })
+
+    it('reports per-tier presence on layered S3 backends (cache vs remote)', async () => {
+      const item = makeItem({
+        id: 'i1',
+        longNotes: [
+          makeNote(
+            'ln1',
+            `<img src="scaffold-media://${HASH_IMG}" />` +
+              `<audio src="scaffold-media://${HASH_AUD}"></audio>` +
+              `<img src="scaffold-media://${HASH_BARE}" />`,
+          ),
+        ],
+      })
+      seedStore([makeProject({ id: 'p1', lists: [item] })])
+      const store = await getStore()
+
+      // HASH_IMG is on both tiers; HASH_AUD is cache-only;
+      // HASH_BARE is remote-only (we treat it as an image since
+      // the long-note element wrapping it is an <img>).
+      const cacheRows = {
+        [HASH_IMG]: { mime: 'image/png', size: 100 },
+        [HASH_AUD]: { mime: 'audio/mpeg', size: 200 },
+      }
+      let getCachedCalls = 0
+      let getCalls = 0
+      setMediaAdapter({
+        has: async () => false,
+        get: async () => {
+          getCalls++
+          return null
+        },
+        put: async () => {},
+        delete: async () => {},
+        listHashes: async () => [HASH_IMG, HASH_BARE],
+        getStats: async () => ({ count: 2, bytes: 0 }),
+        listCachedHashes: async () => [HASH_IMG, HASH_AUD],
+        listRemoteHashes: async () => [HASH_IMG, HASH_BARE],
+        getCached: async (h) => {
+          getCachedCalls++
+          if (!cacheRows[h]) return null
+          return {
+            blob: new Blob([new Uint8Array(cacheRows[h].size)], { type: cacheRows[h].mime }),
+            mime: cacheRows[h].mime,
+            size: cacheRows[h].size,
+            createdAt: 0,
+          }
+        },
+        backfillRemoteFromCache: async () => ({ checked: 0, uploaded: 0, skipped: 0, failed: 0 }),
+      })
+      try {
+        const inventory = await store.getProjectMediaInventory('p1')
+        const byHash = Object.fromEntries(inventory.map((e) => [e.hash, e]))
+
+        expect(byHash[HASH_IMG]).toMatchObject({
+          kind: 'image',
+          inCache: true,
+          inRemote: true,
+          size: 100,
+        })
+        expect(byHash[HASH_AUD]).toMatchObject({
+          kind: 'audio',
+          inCache: true,
+          inRemote: false,
+          size: 200,
+        })
+        // Remote-only: classified as 'image' because it appears
+        // inside an <img>; size 0 because we deliberately don't
+        // GET from S3 just to fill the table.
+        expect(byHash[HASH_BARE]).toMatchObject({
+          kind: 'image',
+          inCache: false,
+          inRemote: true,
+          size: 0,
+        })
+        // Crucially, the layered code path used getCached, not get.
+        expect(getCachedCalls).toBeGreaterThan(0)
+        expect(getCalls).toBe(0)
+      } finally {
+        resetMediaAdapter()
+      }
+    })
+  })
+
   // ─── Outline operations ────────────────────────────────────────
   describe('outline operations', () => {
     let store

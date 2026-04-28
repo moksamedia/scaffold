@@ -469,6 +469,48 @@
               </div>
             </q-banner>
 
+            <q-expansion-item
+              v-if="currentProject && projectMediaInventory.length > 0"
+              v-model="showProjectMediaList"
+              dense
+              icon="folder_open"
+              :label="`Media files (${projectMediaInventory.length})`"
+              :caption="formatBytes(projectStorageUsage.mediaBytes)"
+              class="q-mb-md rounded-borders bg-grey-1"
+            >
+              <q-list dense separator>
+                <q-item v-for="entry in projectMediaInventory" :key="entry.hash">
+                  <q-item-section avatar>
+                    <q-icon
+                      :name="mediaKindIcon(entry.kind)"
+                      :color="entry.kind === 'audio' ? 'purple-7' : 'blue-7'"
+                    />
+                  </q-item-section>
+                  <q-item-section>
+                    <q-item-label class="text-mono">
+                      {{ entry.hash.slice(0, 12) }}…
+                    </q-item-label>
+                    <q-item-label caption>
+                      {{ entry.mime || 'unknown type' }}
+                      <span v-if="entry.size > 0">
+                        · {{ formatBytes(entry.size) }}
+                      </span>
+                      <span v-else-if="!entry.inCache && entry.inRemote">
+                        · size on S3
+                      </span>
+                    </q-item-label>
+                  </q-item-section>
+                  <q-item-section side>
+                    <q-badge
+                      :color="mediaLocationColor(entry)"
+                      :label="mediaLocationLabel(entry)"
+                      outline
+                    />
+                  </q-item-section>
+                </q-item>
+              </q-list>
+            </q-expansion-item>
+
             <q-banner
               v-if="currentProject && projectUnsyncedHashes.size > 0"
               rounded
@@ -758,8 +800,6 @@ import { useOutlineStore } from 'stores/outline-store'
 import { storeToRefs } from 'pinia'
 import { useQuasar } from 'quasar'
 import { getStorageAdapter } from 'src/utils/storage/index.js'
-import { getMediaAdapter } from 'src/utils/media/index.js'
-import { extractRefHashesFromHtml } from 'src/utils/media/references.js'
 import { downloadJSON as downloadJSONShared } from 'src/utils/export/json.js'
 import {
   isUserFolderApiAvailable,
@@ -856,6 +896,8 @@ const fontSizeOptions = Array.from({ length: 37 }, (_, i) => {
 })
 
 const projectMediaUsage = ref({ imageBytes: 0, audioBytes: 0 })
+const projectMediaInventory = ref([])
+const showProjectMediaList = ref(false)
 
 // Media storage backend UI state
 const userFolderApiAvailable = ref(false)
@@ -1287,57 +1329,60 @@ async function backfillAllToS3() {
   }
 }
 
+/**
+ * Walk the current project's long-note HTML and collect a per-file
+ * inventory of every `scaffold-media://` reference (kind, size,
+ * tier presence). Both the storage-usage banner and the collapsible
+ * "Media files" list derive from this single pass so they stay
+ * consistent.
+ */
 async function refreshProjectMediaUsage() {
   if (!currentProject.value) {
     projectMediaUsage.value = { imageBytes: 0, audioBytes: 0 }
+    projectMediaInventory.value = []
     return
   }
 
-  const imageHashes = new Set()
-  const audioHashes = new Set()
-
-  function walk(items) {
-    if (!Array.isArray(items)) return
-    for (const item of items) {
-      if (Array.isArray(item.longNotes)) {
-        for (const note of item.longNotes) {
-          if (typeof note?.text !== 'string') continue
-          const refs = extractRefHashesFromHtml(note.text)
-          if (refs.length === 0) continue
-          // Inspect the actual element to classify image vs audio.
-          const doc = new DOMParser().parseFromString(note.text, 'text/html')
-          const imgs = doc.querySelectorAll('img[src^="scaffold-media://"]')
-          const audios = doc.querySelectorAll('audio[src^="scaffold-media://"]')
-          imgs.forEach((el) => {
-            const hash = (el.getAttribute('src') || '').slice('scaffold-media://'.length)
-            if (hash) imageHashes.add(hash)
-          })
-          audios.forEach((el) => {
-            const hash = (el.getAttribute('src') || '').slice('scaffold-media://'.length)
-            if (hash) audioHashes.add(hash)
-          })
-        }
-      }
-      if (Array.isArray(item.children) && item.children.length > 0) {
-        walk(item.children)
-      }
-    }
-  }
-
-  walk(currentProject.value.lists || [])
-
-  const adapter = getMediaAdapter()
+  const inventory = await store.getProjectMediaInventory(currentProject.value.id)
   let imageBytes = 0
   let audioBytes = 0
-  for (const hash of imageHashes) {
-    const row = await adapter.get(hash)
-    if (row?.size) imageBytes += row.size
-  }
-  for (const hash of audioHashes) {
-    const row = await adapter.get(hash)
-    if (row?.size) audioBytes += row.size
+  for (const entry of inventory) {
+    if (entry.kind === 'image') imageBytes += entry.size
+    else if (entry.kind === 'audio') audioBytes += entry.size
   }
   projectMediaUsage.value = { imageBytes, audioBytes }
+  projectMediaInventory.value = inventory
+}
+
+function mediaLocationLabel(entry) {
+  if (entry.inRemote === null) {
+    return entry.inCache ? 'Stored locally' : 'Missing'
+  }
+  if (entry.inCache && entry.inRemote) return 'Local cache + S3'
+  if (entry.inCache) return 'Local cache only'
+  if (entry.inRemote) return 'On S3 only'
+  return 'Missing'
+}
+
+function mediaLocationColor(entry) {
+  if (entry.inRemote === null) {
+    return entry.inCache ? 'positive' : 'negative'
+  }
+  if (entry.inCache && entry.inRemote) return 'positive'
+  if (entry.inCache) return 'warning'
+  if (entry.inRemote) return 'info'
+  return 'negative'
+}
+
+function mediaKindIcon(kind) {
+  switch (kind) {
+    case 'image':
+      return 'image'
+    case 'audio':
+      return 'music_note'
+    default:
+      return 'help_outline'
+  }
 }
 
 function getUtf8Bytes(value) {
@@ -1543,6 +1588,13 @@ watch(activeTab, (tab) => {
 
 .size-field {
   width: 120px;
+}
+
+.text-mono {
+  font-family:
+    ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, 'Liberation Mono',
+    monospace;
+  letter-spacing: 0.02em;
 }
 
 .color-swatch {

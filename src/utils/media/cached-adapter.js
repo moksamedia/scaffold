@@ -132,6 +132,17 @@ export function createCachingMediaAdapter({ remote, cache, localGcOnly = false }
   }
 
   /**
+   * Read a hash from the cache tier ONLY. Unlike `get()`, this does
+   * not fall through to the remote on a miss — useful for inventory
+   * displays that need size / mime metadata without triggering S3
+   * round-trips and lazy-promotion of remote-only blobs into the
+   * local cache.
+   */
+  async function getCached(hash) {
+    return cache.get(hash)
+  }
+
+  /**
    * Push every cache-only blob into the remote. Used after the user
    * connects S3 to a device that already had media stored locally —
    * those bytes are NOT auto-migrated by `selectMediaAdapter`,
@@ -203,6 +214,7 @@ export function createCachingMediaAdapter({ remote, cache, localGcOnly = false }
     getStats,
     listCachedHashes,
     listRemoteHashes,
+    getCached,
     backfillRemoteFromCache,
   }
 }

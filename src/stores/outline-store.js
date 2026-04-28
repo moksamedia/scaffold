@@ -27,7 +27,10 @@ import { getStorageAdapter } from 'src/utils/storage/index.js'
 import { getMediaAdapter, selectMediaAdapter } from 'src/utils/media/index.js'
 import { runMediaMigration } from 'src/utils/media/migration.js'
 import { runMediaGc } from 'src/utils/media/gc.js'
-import { collectProjectRefHashes } from 'src/utils/media/references.js'
+import {
+  collectProjectRefHashes,
+  extractRefHashesFromHtml,
+} from 'src/utils/media/references.js'
 
 /** Placeholder text for newly created list items (cleared when user starts editing). */
 export const DEFAULT_NEW_LIST_ITEM_TEXT = 'New Item'
@@ -380,6 +383,121 @@ export const useOutlineStore = defineStore('outline', () => {
       console.warn('Failed to compute unsynced media set:', error)
       return new Set()
     }
+  }
+
+  /**
+   * @typedef {Object} ProjectMediaInventoryEntry
+   * @property {string} hash
+   * @property {'image' | 'audio' | 'unknown'} kind - inferred from
+   *   the surrounding `<img>` / `<audio>` element in the long-note
+   *   HTML; falls back to 'unknown' when only a bare reference is
+   *   present.
+   * @property {string | null} mime
+   * @property {number} size - bytes (0 when only available on remote
+   *   and we can't stat it cheaply, or when not stored anywhere).
+   * @property {boolean} inCache
+   * @property {boolean | null} inRemote - null when the active
+   *   backend has no remote tier (purely local IDB / OPFS / folder).
+   */
+
+  /**
+   * Walk every long-note in `projectId`, classify each unique
+   * `scaffold-media://<hash>` reference as image / audio / unknown,
+   * and look up its size, mime, and tier presence. Used by the
+   * Settings dialog's "Media files" inventory view. Reads the local
+   * cache directly to avoid triggering S3 GETs on remote-only
+   * blobs.
+   *
+   * @param {string} projectId
+   * @returns {Promise<ProjectMediaInventoryEntry[]>}
+   */
+  async function getProjectMediaInventory(projectId) {
+    const project = projects.value.find((p) => p.id === projectId)
+    if (!project) return []
+    if (typeof DOMParser === 'undefined') return []
+
+    const kindByHash = new Map()
+    const visit = (items) => {
+      if (!Array.isArray(items)) return
+      for (const item of items) {
+        if (Array.isArray(item.longNotes)) {
+          for (const note of item.longNotes) {
+            if (typeof note?.text !== 'string') continue
+            // Seed the map with every reference first so we don't
+            // miss bare refs (no surrounding img/audio element).
+            for (const hash of extractRefHashesFromHtml(note.text)) {
+              if (!kindByHash.has(hash)) kindByHash.set(hash, 'unknown')
+            }
+            const doc = new DOMParser().parseFromString(note.text, 'text/html')
+            const setKind = (selector, kind) => {
+              for (const el of doc.querySelectorAll(selector)) {
+                const src = el.getAttribute('src') || ''
+                const hash = src.startsWith('scaffold-media://')
+                  ? src.slice('scaffold-media://'.length)
+                  : ''
+                if (hash) kindByHash.set(hash, kind)
+              }
+            }
+            setKind('img[src^="scaffold-media://"]', 'image')
+            setKind('audio[src^="scaffold-media://"]', 'audio')
+          }
+        }
+        if (Array.isArray(item.children) && item.children.length > 0) {
+          visit(item.children)
+        }
+      }
+    }
+    visit(project.lists || [])
+
+    if (kindByHash.size === 0) return []
+
+    const adapter = getMediaAdapter()
+    const isLayered = mediaBackendSupportsRemoteSync()
+
+    let cacheHashes = null
+    let remoteHashes = null
+    if (isLayered) {
+      try {
+        const [c, r] = await Promise.all([
+          adapter.listCachedHashes(),
+          adapter.listRemoteHashes(),
+        ])
+        cacheHashes = new Set(c)
+        remoteHashes = new Set(r)
+      } catch (error) {
+        console.warn('Failed to list media tier presence:', error)
+      }
+    }
+
+    const inventory = []
+    for (const [hash, kind] of kindByHash) {
+      let mime = null
+      let size = 0
+      let inCache = false
+      try {
+        // Prefer the cache-only read on layered adapters so this view
+        // doesn't accidentally pull every remote blob into local
+        // storage just to fill the table.
+        const row =
+          isLayered && typeof adapter.getCached === 'function'
+            ? await adapter.getCached(hash)
+            : await adapter.get(hash)
+        if (row?.blob) {
+          mime = row.mime || null
+          size = row.size || row.blob.size || 0
+          inCache = true
+        }
+      } catch (error) {
+        console.warn(`Failed to read media ${hash} for inventory:`, error)
+      }
+      // Override `inCache` from the authoritative listing when we
+      // have one — handles the (rare) case where get() failed
+      // transiently but the blob is in fact present.
+      if (cacheHashes !== null) inCache = cacheHashes.has(hash)
+      const inRemote = remoteHashes !== null ? remoteHashes.has(hash) : null
+      inventory.push({ hash, kind, mime, size, inCache, inRemote })
+    }
+    return inventory
   }
 
   /**
@@ -2132,6 +2250,7 @@ export const useOutlineStore = defineStore('outline', () => {
     getUnsyncedMediaForProject,
     getAllUnsyncedMedia,
     backfillMediaToRemote,
+    getProjectMediaInventory,
     renameProject,
     selectProject,
     projectLockBlockedProjectId,
