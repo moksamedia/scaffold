@@ -23,6 +23,7 @@
  */
 
 import { getBaseStorageAdapter } from '../storage/index.js'
+import { logger } from '../logging/logger.js'
 
 const CONTEXTS_META_KEY = 'scaffold-contexts'
 const ACTIVE_CONTEXT_META_KEY = 'scaffold-active-context'
@@ -195,11 +196,18 @@ export async function cloneContextData(sourceId, targetId) {
         await base.setMeta(`${targetPrefix}${suffix}`, entry.value)
         copied += 1
       } catch (error) {
-        console.warn(`cloneContextData: failed to copy ${entry.key}:`, error)
+        logger.error('context.clone.copy.failed', error, {
+          legacyKey: entry.key,
+          sourceContextId: sourceId,
+          targetContextId: targetId,
+        })
       }
     }
   } catch (error) {
-    console.warn(`cloneContextData: failed to enumerate ${sourcePrefix}:`, error)
+    logger.error('context.clone.enumerate.failed', error, {
+      sourceContextId: sourceId,
+      targetContextId: targetId,
+    })
   }
   return { copied }
 }
@@ -258,11 +266,16 @@ export async function deleteContext(id) {
       try {
         await base.deleteMeta(entry.key)
       } catch (error) {
-        console.warn(`Failed to delete meta ${entry.key} for context ${id}:`, error)
+        logger.error('context.delete.entry.failed', error, {
+          legacyKey: entry.key,
+          contextId: id,
+        })
       }
     }
   } catch (error) {
-    console.warn(`Failed to enumerate meta entries for context ${id}:`, error)
+    logger.error('context.delete.enumerate.failed', error, {
+      contextId: id,
+    })
   }
 
   return { deleted: true }

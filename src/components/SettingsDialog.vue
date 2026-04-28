@@ -459,6 +459,44 @@
                 </q-card>
               </q-expansion-item>
             </div>
+
+            <q-separator class="q-my-lg" />
+
+            <div class="q-mb-lg">
+              <div class="text-subtitle1 q-mb-sm">Diagnostics</div>
+              <div class="text-caption text-grey-7 q-mb-sm">
+                Recent log entries help us reproduce reported issues. Sensitive
+                fields (secrets, passphrases) are redacted automatically.
+              </div>
+              <div class="row q-gutter-sm items-center">
+                <q-btn
+                  outline
+                  no-caps
+                  icon="content_copy"
+                  label="Copy diagnostics"
+                  @click="copyDiagnosticsToClipboard"
+                />
+                <q-btn
+                  outline
+                  no-caps
+                  icon="download"
+                  label="Download diagnostics"
+                  @click="downloadDiagnosticsLog"
+                />
+                <q-btn
+                  flat
+                  no-caps
+                  icon="delete_outline"
+                  label="Clear log buffer"
+                  color="grey-7"
+                  @click="clearDiagnosticsLog"
+                />
+                <q-space />
+                <div class="text-caption text-grey-7">
+                  {{ diagnosticsEntryCount }} entries captured
+                </div>
+              </div>
+            </div>
           </q-tab-panel>
 
           <!-- Project Settings Tab -->
@@ -833,6 +871,7 @@ import { storeToRefs } from 'pinia'
 import { useQuasar } from 'quasar'
 import { getStorageAdapter } from 'src/utils/storage/index.js'
 import { downloadJSON as downloadJSONShared } from 'src/utils/export/json.js'
+import { clearLogs, getRecentLogs, logger } from 'src/utils/logging/logger.js'
 import {
   isUserFolderApiAvailable,
   pickUserFolder,
@@ -979,7 +1018,9 @@ async function refreshMediaBackendState() {
       ? await ensureUserFolderPermission(handle, { interactive: false })
       : null
   } catch (error) {
-    console.warn('Failed to inspect user-folder handle:', error)
+    logger.error('settings.userFolder.inspect.failed', error, {
+      component: 'SettingsDialog',
+    })
     userFolderConfigured.value = false
     userFolderPermissionState.value = null
   }
@@ -999,8 +1040,15 @@ async function chooseMediaFolder() {
       timeout: 3000,
     })
   } catch (error) {
-    if (error?.name === 'AbortError') return
-    console.warn('Failed to choose media folder:', error)
+    if (error?.name === 'AbortError') {
+      logger.debug('settings.userFolder.choose.cancelled', {
+        component: 'SettingsDialog',
+      })
+      return
+    }
+    logger.error('settings.userFolder.choose.failed', error, {
+      component: 'SettingsDialog',
+    })
     $q.notify({
       type: 'negative',
       message: error?.message || 'Could not set the media folder.',
@@ -1024,7 +1072,9 @@ async function disconnectMediaFolder() {
       timeout: 3000,
     })
   } catch (error) {
-    console.warn('Failed to disconnect media folder:', error)
+    logger.error('settings.userFolder.disconnect.failed', error, {
+      component: 'SettingsDialog',
+    })
     $q.notify({
       type: 'negative',
       message: 'Could not disconnect the media folder.',
@@ -1081,14 +1131,20 @@ async function refreshS3State() {
     }
     const rememberedPassphrase = getRememberedS3UnlockPassphrase()
     rememberS3UnlockPassphraseChecked.value = Boolean(rememberedPassphrase)
+    const hadCredsBefore = !!getS3Credentials()?.secretAccessKey
+    let didAutoUnlock = false
     if (
       stored.publicConfig.mode === 'persisted' &&
       !getS3Credentials()?.secretAccessKey &&
       rememberedPassphrase
     ) {
       await unlockS3Config(rememberedPassphrase)
+      didAutoUnlock = !!getS3Credentials()?.secretAccessKey
     }
     const credentials = getS3Credentials()
+    // #region agent log
+    fetch('http://127.0.0.1:7652/ingest/aa926f98-514d-4a15-a6d3-0b9951fec4e7',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'53352e'},body:JSON.stringify({sessionId:'53352e',hypothesisId:'A',location:'SettingsDialog.vue:refreshS3State',message:'refreshS3State end',data:{configMode:stored.publicConfig.mode,hadCredsBefore,didAutoUnlock,unlockedAfter:!!credentials?.secretAccessKey,bucket:stored.publicConfig.bucket,storeMediaBackend:store.mediaBackend,supportsRemoteSync:store.mediaBackendSupportsRemoteSync()},timestamp:Date.now()})}).catch(()=>{});
+    // #endregion
     s3ConfigState.value = {
       configured: true,
       mode: stored.publicConfig.mode,
@@ -1111,7 +1167,9 @@ async function refreshS3State() {
       rememberUnlockPassphrase: Boolean(rememberedPassphrase),
     }
   } catch (error) {
-    console.warn('Failed to read S3 config:', error)
+    logger.error('settings.s3.config.read.failed', error, {
+      component: 'SettingsDialog',
+    })
   }
 }
 
@@ -1176,7 +1234,11 @@ async function saveS3Settings() {
       timeout: 3000,
     })
   } catch (error) {
-    console.warn('Failed to save S3 config:', error)
+    logger.error('settings.s3.connect.failed', error, {
+      component: 'SettingsDialog',
+      mode: s3Form.value.mode,
+      sharedBucket: Boolean(s3Form.value.sharedBucket),
+    })
     $q.notify({
       type: 'negative',
       message: error?.message || 'Could not connect to S3.',
@@ -1226,6 +1288,97 @@ async function lockS3Settings() {
   await refreshMediaSyncStatus()
 }
 
+// --- Diagnostics buffer ------------------------------------------------------
+
+const diagnosticsEntryCount = computed(() => getRecentLogs().length)
+
+function buildDiagnosticsPayload() {
+  return {
+    capturedAt: new Date().toISOString(),
+    activeContextId: store.activeContextId,
+    mediaBackend: store.mediaBackend,
+    storeReady: store.storeReady,
+    projectCount: store.projects?.length ?? 0,
+    userAgent:
+      typeof navigator !== 'undefined' && navigator.userAgent
+        ? navigator.userAgent
+        : null,
+    entries: getRecentLogs(),
+  }
+}
+
+async function copyDiagnosticsToClipboard() {
+  const payload = buildDiagnosticsPayload()
+  const text = JSON.stringify(payload, null, 2)
+  try {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(text)
+    } else {
+      throw new Error('Clipboard API unavailable')
+    }
+    $q.notify({
+      type: 'positive',
+      message: `Copied ${payload.entries.length} log entries to clipboard.`,
+      position: 'top',
+      timeout: 2500,
+    })
+  } catch (error) {
+    logger.error('diagnostics.copy.failed', error, {
+      component: 'SettingsDialog',
+    })
+    $q.notify({
+      type: 'negative',
+      message: 'Could not copy diagnostics. Try the download button instead.',
+      position: 'top',
+      timeout: 3500,
+    })
+  }
+}
+
+function downloadDiagnosticsLog() {
+  const payload = buildDiagnosticsPayload()
+  const text = JSON.stringify(payload, null, 2)
+  const ts = new Date().toISOString().replace(/[:.]/g, '-')
+  const filename = `scaffold-diagnostics-${ts}.json`
+  try {
+    const blob = new Blob([text], { type: 'application/json' })
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = filename
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+    URL.revokeObjectURL(url)
+    $q.notify({
+      type: 'positive',
+      message: `Saved diagnostics (${payload.entries.length} entries).`,
+      position: 'top',
+      timeout: 2500,
+    })
+  } catch (error) {
+    logger.error('diagnostics.download.failed', error, {
+      component: 'SettingsDialog',
+    })
+    $q.notify({
+      type: 'negative',
+      message: 'Could not save diagnostics file.',
+      position: 'top',
+      timeout: 3500,
+    })
+  }
+}
+
+function clearDiagnosticsLog() {
+  clearLogs()
+  $q.notify({
+    type: 'info',
+    message: 'Cleared diagnostics buffer.',
+    position: 'top',
+    timeout: 2000,
+  })
+}
+
 async function disconnectS3Settings() {
   try {
     await clearS3Config()
@@ -1241,7 +1394,9 @@ async function disconnectS3Settings() {
       timeout: 3000,
     })
   } catch (error) {
-    console.warn('Failed to disconnect S3:', error)
+    logger.error('settings.s3.disconnect.failed', error, {
+      component: 'SettingsDialog',
+    })
     $q.notify({
       type: 'negative',
       message: 'Could not disconnect S3.',
@@ -1307,7 +1462,10 @@ async function refreshMediaSyncStatus() {
     projectUnsyncedHashes.value = perProject
     programUnsyncedHashes.value = allUnsynced
   } catch (error) {
-    console.warn('Failed to compute media sync status:', error)
+    logger.error('settings.media.syncStatus.failed', error, {
+      component: 'SettingsDialog',
+      backend: store.mediaBackend,
+    })
     projectUnsyncedHashes.value = new Set()
     programUnsyncedHashes.value = new Set()
   }
@@ -1341,6 +1499,11 @@ async function backfillProjectToS3() {
     }
     await refreshMediaSyncStatus()
   } catch (error) {
+    logger.error('media.backfill.project.failed', error, {
+      component: 'SettingsDialog',
+      projectId: currentProject.value?.id,
+      hashCount: projectUnsyncedHashes.value.size,
+    })
     $q.notify({
       type: 'negative',
       message: `Push to S3 failed: ${error.message}`,
@@ -1380,6 +1543,10 @@ async function backfillAllToS3() {
     }
     await refreshMediaSyncStatus()
   } catch (error) {
+    logger.error('media.backfill.program.failed', error, {
+      component: 'SettingsDialog',
+      hashCount: programUnsyncedHashes.value.size,
+    })
     $q.notify({
       type: 'negative',
       message: `Push to S3 failed: ${error.message}`,

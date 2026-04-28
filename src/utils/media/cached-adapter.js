@@ -1,3 +1,5 @@
+import { logger } from '../logging/logger.js'
+
 /**
  * Read-through cache wrapper for a remote MediaStorageAdapter.
  *
@@ -61,7 +63,10 @@ export function createCachingMediaAdapter({ remote, cache, localGcOnly = false }
     try {
       await cache.put(hash, blob, mime)
     } catch (error) {
-      console.warn(`Media cache put for ${hash} failed:`, error)
+      logger.error('media.cache.put.failed', error, {
+        hashPrefix: String(hash).slice(0, 12),
+        mime: mime || null,
+      })
     }
   }
 
@@ -69,7 +74,9 @@ export function createCachingMediaAdapter({ remote, cache, localGcOnly = false }
     try {
       await cache.delete(hash)
     } catch (error) {
-      console.warn(`Media cache delete for ${hash} failed:`, error)
+      logger.error('media.cache.delete.failed', error, {
+        hashPrefix: String(hash).slice(0, 12),
+      })
     }
   }
 
@@ -187,7 +194,9 @@ export function createCachingMediaAdapter({ remote, cache, localGcOnly = false }
           stats.uploaded++
         }
       } catch (error) {
-        console.warn(`Backfill of ${hash} failed:`, error)
+        logger.error('media.backfill.hash.failed', error, {
+          hashPrefix: String(hash).slice(0, 12),
+        })
         stats.failed++
       }
       if (typeof options.onProgress === 'function') {

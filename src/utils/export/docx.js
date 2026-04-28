@@ -10,6 +10,8 @@ import {
 } from 'docx'
 
 import { Buffer } from 'buffer'
+import { logger } from '../logging/logger.js'
+
 globalThis.Buffer = Buffer
 if (typeof window !== 'undefined') {
   window.Buffer = Buffer
@@ -384,6 +386,8 @@ export async function exportAsDocx(project) {
     document.body.removeChild(link)
     URL.revokeObjectURL(url)
   } catch (error) {
-    console.error('Error generating DOCX:', error)
+    logger.error('export.docx.failed', error, {
+      projectName: project?.name,
+    })
   }
 }

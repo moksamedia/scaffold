@@ -46,6 +46,7 @@ import {
   setStoredActiveContextId,
 } from 'src/utils/context/session.js'
 import { runContextMigration } from 'src/utils/context/migration.js'
+import { logger } from 'src/utils/logging/logger.js'
 
 /** Placeholder text for newly created list items (cleared when user starts editing). */
 export const DEFAULT_NEW_LIST_ITEM_TEXT = 'New Item'
@@ -290,11 +291,11 @@ export const useOutlineStore = defineStore('outline', () => {
     try {
       residualLive = await collectLiveMediaHashesExcludingProject(projectId)
     } catch (error) {
-      console.warn(
-        'Failed to walk persisted contexts for orphan computation; ' +
-          'falling back to in-memory active-context state:',
-        error,
-      )
+      logger.error('media.orphanScan.fallback', error, {
+        projectId,
+        contextId: activeContextId.value,
+        reason: 'cross-context-walk-failed',
+      })
       residualLive = new Set(
         collectProjectRefHashes(
           projects.value.filter((p) => p.id !== projectId),
@@ -324,7 +325,10 @@ export const useOutlineStore = defineStore('outline', () => {
       try {
         await adapter.forceDeleteFromRemote(hash)
       } catch (error) {
-        console.warn(`forceDeleteFromRemote(${hash}) failed:`, error)
+        logger.error('media.purgeRemote.failed', error, {
+          hashPrefix: String(hash).slice(0, 12),
+          backend: mediaBackend.value,
+        })
       }
     }
   }
@@ -337,12 +341,16 @@ export const useOutlineStore = defineStore('outline', () => {
    */
   function mediaBackendSupportsRemoteSync() {
     const adapter = getMediaAdapter()
-    return Boolean(
+    const supports = Boolean(
       adapter &&
         typeof adapter.listRemoteHashes === 'function' &&
         typeof adapter.listCachedHashes === 'function' &&
         typeof adapter.backfillRemoteFromCache === 'function',
     )
+    // #region agent log
+    fetch('http://127.0.0.1:7652/ingest/aa926f98-514d-4a15-a6d3-0b9951fec4e7',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'53352e'},body:JSON.stringify({sessionId:'53352e',hypothesisId:'A',location:'outline-store.js:mediaBackendSupportsRemoteSync',message:'Adapter shape probed',data:{hasAdapter:!!adapter,hasListRemote:typeof adapter?.listRemoteHashes==='function',hasListCached:typeof adapter?.listCachedHashes==='function',hasBackfill:typeof adapter?.backfillRemoteFromCache==='function',supports,mediaBackendValue:mediaBackend.value},timestamp:Date.now()})}).catch(()=>{});
+    // #endregion
+    return supports
   }
 
   /**
@@ -364,15 +372,18 @@ export const useOutlineStore = defineStore('outline', () => {
     const adapter = getMediaAdapter()
     let remoteHashes
     let cacheHashes
-    try {
-      ;[remoteHashes, cacheHashes] = await Promise.all([
-        adapter.listRemoteHashes(),
-        adapter.listCachedHashes(),
-      ])
-    } catch (error) {
-      console.warn('Failed to list media hashes for sync status:', error)
-      return new Set()
-    }
+      try {
+        ;[remoteHashes, cacheHashes] = await Promise.all([
+          adapter.listRemoteHashes(),
+          adapter.listCachedHashes(),
+        ])
+      } catch (error) {
+        logger.error('media.sync.listHashes.failed', error, {
+          backend: mediaBackend.value,
+          projectId,
+        })
+        return new Set()
+      }
     const remoteSet = new Set(remoteHashes)
     const cacheSet = new Set(cacheHashes)
 
@@ -411,7 +422,10 @@ export const useOutlineStore = defineStore('outline', () => {
       }
       return out
     } catch (error) {
-      console.warn('Failed to compute unsynced media set:', error)
+      logger.error('media.sync.unsynced.failed', error, {
+        backend: mediaBackend.value,
+        scope: 'all',
+      })
       return new Set()
     }
   }
@@ -487,6 +501,7 @@ export const useOutlineStore = defineStore('outline', () => {
 
     let cacheHashes = null
     let remoteHashes = null
+    let listError = null
     if (isLayered) {
       try {
         const [c, r] = await Promise.all([
@@ -496,9 +511,16 @@ export const useOutlineStore = defineStore('outline', () => {
         cacheHashes = new Set(c)
         remoteHashes = new Set(r)
       } catch (error) {
-        console.warn('Failed to list media tier presence:', error)
+        logger.error('media.inventory.tierList.failed', error, {
+          backend: mediaBackend.value,
+          projectId,
+        })
+        listError = String(error?.message || error)
       }
     }
+    // #region agent log
+    fetch('http://127.0.0.1:7652/ingest/aa926f98-514d-4a15-a6d3-0b9951fec4e7',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'53352e'},body:JSON.stringify({sessionId:'53352e',hypothesisId:'E',location:'outline-store.js:getProjectMediaInventory:tiers',message:'Tier hash listings',data:{projectId,refsCount:kindByHash.size,isLayered,cacheCount:cacheHashes?.size??null,remoteCount:remoteHashes?.size??null,listError,refsSample:Array.from(kindByHash.keys()).slice(0,3).map(h=>h.slice(0,12))},timestamp:Date.now()})}).catch(()=>{});
+    // #endregion
 
     const inventory = []
     for (const [hash, kind] of kindByHash) {
@@ -519,7 +541,10 @@ export const useOutlineStore = defineStore('outline', () => {
           inCache = true
         }
       } catch (error) {
-        console.warn(`Failed to read media ${hash} for inventory:`, error)
+        logger.error('media.inventory.read.failed', error, {
+          hashPrefix: String(hash).slice(0, 12),
+          backend: mediaBackend.value,
+        })
       }
       // Override `inCache` from the authoritative listing when we
       // have one — handles the (rare) case where get() failed
@@ -575,7 +600,10 @@ export const useOutlineStore = defineStore('outline', () => {
           await purgeRemoteMediaHashes(orphans)
         }
       } catch (error) {
-        console.warn('Remote media purge failed; continuing with local delete:', error)
+        logger.error('project.delete.remotePurge.failed', error, {
+          projectId,
+          backend: mediaBackend.value,
+        })
       }
     }
 
@@ -587,6 +615,12 @@ export const useOutlineStore = defineStore('outline', () => {
     syncProjectLockSession()
     persistToStorage()
     void triggerMediaGc('project-delete')
+    logger.info('project.delete.success', {
+      projectId,
+      contextId: activeContextId.value,
+      purgeRemoteMedia: Boolean(options.purgeRemoteMedia),
+      remainingProjects: projects.value.length,
+    })
   }
 
   function renameProject(projectId, newName) {
@@ -1276,39 +1310,89 @@ export const useOutlineStore = defineStore('outline', () => {
 
   async function exportProjectAsJSON(options = {}) {
     if (!currentProject.value) return
-    const exportOptions = {}
-    if (options.includeVersionHistory) {
-      exportOptions.versionsByProjectId = await gatherVersionsByProjectId([
-        currentProject.value.id,
-      ])
+    const startedAt = Date.now()
+    const format = options.format === 'scaffoldz' ? 'scaffoldz' : 'json'
+    logger.info('export.start', {
+      scope: 'single',
+      format,
+      projectId: currentProject.value.id,
+      includeVersionHistory: Boolean(options.includeVersionHistory),
+      contextId: activeContextId.value,
+    })
+    try {
+      const exportOptions = {}
+      if (options.includeVersionHistory) {
+        exportOptions.versionsByProjectId = await gatherVersionsByProjectId([
+          currentProject.value.id,
+        ])
+      }
+      if (format === 'scaffoldz') {
+        const bytes = await buildScaffoldzBundle(
+          [currentProject.value],
+          currentProject.value.id,
+          exportOptions,
+        )
+        const filename = `${currentProject.value.name}_outline_${getFilenameTimestamp()}`
+        await downloadScaffoldzBundle(bytes, filename)
+      } else {
+        await exportSingleProjectAsJSON(currentProject.value, exportOptions)
+      }
+      logger.info('export.success', {
+        scope: 'single',
+        format,
+        projectId: currentProject.value.id,
+        durationMs: Date.now() - startedAt,
+      })
+    } catch (error) {
+      logger.error('export.failed', error, {
+        scope: 'single',
+        format,
+        projectId: currentProject.value?.id,
+        durationMs: Date.now() - startedAt,
+      })
+      throw error
     }
-    if (options.format === 'scaffoldz') {
-      const bytes = await buildScaffoldzBundle(
-        [currentProject.value],
-        currentProject.value.id,
-        exportOptions,
-      )
-      const filename = `${currentProject.value.name}_outline_${getFilenameTimestamp()}`
-      await downloadScaffoldzBundle(bytes, filename)
-      return
-    }
-    await exportSingleProjectAsJSON(currentProject.value, exportOptions)
   }
 
   async function exportAllAsJSON(options = {}) {
-    const exportOptions = {}
-    if (options.includeVersionHistory) {
-      exportOptions.versionsByProjectId = await gatherVersionsByProjectId(
-        projects.value.map((p) => p.id),
-      )
+    const startedAt = Date.now()
+    const format = options.format === 'scaffoldz' ? 'scaffoldz' : 'json'
+    logger.info('export.start', {
+      scope: 'all',
+      format,
+      projectCount: projects.value.length,
+      includeVersionHistory: Boolean(options.includeVersionHistory),
+      contextId: activeContextId.value,
+    })
+    try {
+      const exportOptions = {}
+      if (options.includeVersionHistory) {
+        exportOptions.versionsByProjectId = await gatherVersionsByProjectId(
+          projects.value.map((p) => p.id),
+        )
+      }
+      if (format === 'scaffoldz') {
+        const bytes = await buildScaffoldzBundle(projects.value, null, exportOptions)
+        const filename = `outline_maker_backup_${getFilenameTimestamp()}`
+        await downloadScaffoldzBundle(bytes, filename)
+      } else {
+        await exportAllProjectsAsJSON(projects.value, exportOptions)
+      }
+      logger.info('export.success', {
+        scope: 'all',
+        format,
+        projectCount: projects.value.length,
+        durationMs: Date.now() - startedAt,
+      })
+    } catch (error) {
+      logger.error('export.failed', error, {
+        scope: 'all',
+        format,
+        projectCount: projects.value.length,
+        durationMs: Date.now() - startedAt,
+      })
+      throw error
     }
-    if (options.format === 'scaffoldz') {
-      const bytes = await buildScaffoldzBundle(projects.value, null, exportOptions)
-      const filename = `outline_maker_backup_${getFilenameTimestamp()}`
-      await downloadScaffoldzBundle(bytes, filename)
-      return
-    }
-    await exportAllProjectsAsJSON(projects.value, exportOptions)
   }
 
   async function persistImportedVersions(versionsByOriginalProjectId, projectIdMap) {
@@ -1385,6 +1469,12 @@ export const useOutlineStore = defineStore('outline', () => {
           return
         }
 
+        const importStartedAt = Date.now()
+        logger.info('import.start', {
+          fileName: file.name,
+          fileSizeBytes: file.size,
+          contextId: activeContextId.value,
+        })
         try {
           // Auto-detect bundle vs plain JSON: prefer extension when
           // it's unambiguous, otherwise sniff the magic bytes. We
@@ -1396,12 +1486,17 @@ export const useOutlineStore = defineStore('outline', () => {
             lowerName.endsWith('.scaffoldz') || lowerName.endsWith('.zip')
 
           let importResult
+          let detectedFormat = 'json'
+          let detectedBy = 'extension'
           if (bundleByExt && typeof file.arrayBuffer === 'function') {
             const bytes = new Uint8Array(await file.arrayBuffer())
+            detectedFormat = 'scaffoldz'
             importResult = await importScaffoldzBundle(bytes)
           } else if (typeof file.arrayBuffer === 'function') {
             const bytes = new Uint8Array(await file.arrayBuffer())
             if (isZipMagic(bytes)) {
+              detectedFormat = 'scaffoldz'
+              detectedBy = 'magic'
               importResult = await importScaffoldzBundle(bytes)
             } else {
               const text = new TextDecoder().decode(bytes)
@@ -1413,6 +1508,11 @@ export const useOutlineStore = defineStore('outline', () => {
             const jsonData = JSON.parse(text)
             importResult = await importFromJSON(jsonData)
           }
+          logger.debug('import.format.detected', {
+            format: detectedFormat,
+            detectedBy,
+            fileName: file.name,
+          })
           const warnings = [...(importResult.warnings || [])]
 
           // Track original-id → final-id so version-history meta keys can be remapped.
@@ -1454,6 +1554,17 @@ export const useOutlineStore = defineStore('outline', () => {
 
           await refreshMediaUsage()
 
+          logger.info('import.success', {
+            format: detectedFormat,
+            fileName: file.name,
+            projectsImported: importResult.projects.length,
+            versionsImported: importedVersionCount,
+            mediaImported: importResult.importedMediaCount || 0,
+            warningsCount: warnings.length,
+            durationMs: Date.now() - importStartedAt,
+            contextId: activeContextId.value,
+          })
+
           resolve({
             success: true,
             imported: importResult.projects.length,
@@ -1462,6 +1573,12 @@ export const useOutlineStore = defineStore('outline', () => {
             warnings,
           })
         } catch (error) {
+          logger.error('import.failed', error, {
+            fileName: file.name,
+            fileSizeBytes: file.size,
+            durationMs: Date.now() - importStartedAt,
+            contextId: activeContextId.value,
+          })
           reject(error)
         }
       }
@@ -1642,17 +1759,32 @@ export const useOutlineStore = defineStore('outline', () => {
         bytes: stats?.bytes || 0,
       }
     } catch (error) {
-      console.warn('Failed to read media usage stats:', error)
+      logger.error('media.usage.refresh.failed', error, {
+        backend: mediaBackend.value,
+      })
     }
     return mediaUsage.value
   }
 
   async function triggerMediaGc(reason = 'scheduled') {
+    const startedAt = Date.now()
     try {
-      await runMediaGc()
+      const stats = await runMediaGc()
       await refreshMediaUsage()
+      logger.info('media.gc.success', {
+        gcReason: reason,
+        deleted: stats?.deleted || 0,
+        kept: stats?.kept || 0,
+        skippedByGrace: stats?.skippedByGrace || 0,
+        durationMs: Date.now() - startedAt,
+        backend: mediaBackend.value,
+      })
     } catch (error) {
-      console.warn(`Media GC (${reason}) failed:`, error)
+      logger.error('media.gc.failed', error, {
+        gcReason: reason,
+        durationMs: Date.now() - startedAt,
+        backend: mediaBackend.value,
+      })
     }
   }
 
@@ -1660,13 +1792,20 @@ export const useOutlineStore = defineStore('outline', () => {
   // Settings UI after a user picks (or clears) a custom media folder
   // so the active adapter immediately reflects the new choice.
   async function reselectMediaBackend() {
+    const previous = mediaBackend.value
     try {
       const result = await selectMediaAdapter()
       mediaBackend.value = result?.backend || 'idb'
       await refreshMediaUsage()
+      logger.info('media.backend.reselect.success', {
+        previousBackend: previous,
+        backend: mediaBackend.value,
+      })
       return mediaBackend.value
     } catch (error) {
-      console.warn('Media adapter reselection failed:', error)
+      logger.error('media.backend.reselect.failed', error, {
+        previousBackend: previous,
+      })
       return mediaBackend.value
     }
   }
@@ -1701,7 +1840,11 @@ export const useOutlineStore = defineStore('outline', () => {
         await updateStorageUsageWarning(adapter)
       } catch (error) {
         storageSaveError.value = getPersistErrorMessage(error)
-        console.error('Failed to persist project data:', error)
+        logger.error('persist.save.failed', error, {
+          contextId: activeContextId.value,
+          projectCount: projectsSnapshot.length,
+          currentProjectId: currentProjectSnapshot || null,
+        })
       }
     })()
   }
@@ -2091,6 +2234,12 @@ export const useOutlineStore = defineStore('outline', () => {
     }
 
     storeReady.value = true
+    logger.debug('store.loadFromStorage.success', {
+      contextId: activeContextId.value,
+      projectsLoaded: projects.value.length,
+      currentProjectId: currentProjectId.value,
+      adjustedCurrentDueToLock,
+    })
   }
 
   function registerProjectLockUnloadHandlers() {
@@ -2142,7 +2291,7 @@ export const useOutlineStore = defineStore('outline', () => {
     try {
       contexts.value = await loadContextRegistry()
     } catch (error) {
-      console.warn('Failed to refresh context registry:', error)
+      logger.error('context.registry.refresh.failed', error)
     }
     return contexts.value
   }
@@ -2164,10 +2313,16 @@ export const useOutlineStore = defineStore('outline', () => {
     // observers see the spinner the instant the switch starts.
     switchingContext.value = true
     storeReady.value = false
+    const fromContextId = activeContextId.value
+    const startedAt = Date.now()
+    logger.info('context.switch.start', { fromContextId, toContextId: id })
     try {
       const registry = await loadContextRegistry()
       if (!registry.some((c) => c.id === id)) {
-        console.warn(`switchContext: unknown context id "${id}"`)
+        logger.error('context.switch.invalidTarget', {
+          toContextId: id,
+          fromContextId,
+        })
         return false
       }
 
@@ -2178,14 +2333,30 @@ export const useOutlineStore = defineStore('outline', () => {
       try {
         await setStoredActiveContextId(id)
       } catch (error) {
-        console.warn('Failed to persist active context id:', error)
+        logger.error('context.switch.persistActive.failed', error, {
+          toContextId: id,
+        })
       }
 
       contexts.value = registry
 
       await loadFromStorage()
       await hydrateActiveContext()
+      logger.info('context.switch.success', {
+        fromContextId,
+        toContextId: id,
+        projectsLoaded: projects.value.length,
+        backend: mediaBackend.value,
+        durationMs: Date.now() - startedAt,
+      })
       return true
+    } catch (error) {
+      logger.error('context.switch.failed', error, {
+        fromContextId,
+        toContextId: id,
+        durationMs: Date.now() - startedAt,
+      })
+      throw error
     } finally {
       switchingContext.value = false
     }
@@ -2215,15 +2386,18 @@ export const useOutlineStore = defineStore('outline', () => {
       try {
         await flushPersistence()
       } catch (error) {
-        console.warn(
-          'Failed to flush persistence before cloning context; ' +
-            'continuing with last persisted snapshot:',
-          error,
-        )
+        logger.error('context.create.flushBeforeClone.failed', error, {
+          sourceContextId: cloneFromId,
+        })
       }
     }
     const ctx = await createContext(name, { cloneFromId })
     contexts.value = await loadContextRegistry()
+    logger.info('context.create.success', {
+      newContextId: ctx.id,
+      cloneFromId,
+      activate: options.activate !== false,
+    })
     if (options.activate !== false) {
       await switchContext(ctx.id)
     }
@@ -2369,7 +2543,11 @@ export const useOutlineStore = defineStore('outline', () => {
         return restoredProject.id
       }
     } catch (error) {
-      console.error('Failed to restore version:', error)
+      logger.error('version.restore.failed', error, {
+        projectId: version?.projectId || null,
+        versionId: version?.id || null,
+        contextId: activeContextId.value,
+      })
     }
     
     return null
@@ -2380,7 +2558,9 @@ export const useOutlineStore = defineStore('outline', () => {
       try {
         cleanup()
       } catch (error) {
-        console.warn('Auto-versioning teardown error:', error)
+        logger.error('autoversion.teardown.failed', error, {
+          contextId: activeContextId.value,
+        })
       }
     }
     _autoVersioningCleanup = []
@@ -2431,17 +2611,25 @@ export const useOutlineStore = defineStore('outline', () => {
    * across reloads (the migration's gating registry prevents re-runs).
    */
   async function initContexts() {
+    const startedAt = Date.now()
+    logger.info('app.init.contexts.start')
+    let migrationResult = null
     try {
-      await runContextMigration()
+      migrationResult = await runContextMigration()
     } catch (error) {
-      console.warn('Context migration failed:', error)
+      logger.error('app.init.migration.failed', error)
+    }
+    if (migrationResult?.migrated) {
+      logger.info('app.init.migration.success', {
+        contextId: migrationResult.contextId,
+      })
     }
 
     let activeId = null
     try {
       activeId = await resolveActiveContextId()
     } catch (error) {
-      console.warn('Failed to resolve active context id:', error)
+      logger.error('app.init.activeContext.resolve.failed', error)
     }
 
     if (activeId) {
@@ -2450,7 +2638,9 @@ export const useOutlineStore = defineStore('outline', () => {
       try {
         await setStoredActiveContextId(activeId)
       } catch (error) {
-        console.warn('Failed to persist active context id:', error)
+        logger.error('app.init.activeContext.persist.failed', error, {
+          contextId: activeId,
+        })
       }
     } else {
       setActiveContextId(null)
@@ -2460,9 +2650,15 @@ export const useOutlineStore = defineStore('outline', () => {
     try {
       contexts.value = await loadContextRegistry()
     } catch (error) {
-      console.warn('Failed to load context registry:', error)
+      logger.error('app.init.contexts.load.failed', error)
       contexts.value = []
     }
+
+    logger.info('app.init.contexts.success', {
+      activeContextId: activeContextId.value,
+      contextCount: contexts.value.length,
+      durationMs: Date.now() - startedAt,
+    })
   }
 
   /**
@@ -2472,6 +2668,10 @@ export const useOutlineStore = defineStore('outline', () => {
    * `switchContext` runs the same sequence after the active id changes.
    */
   async function hydrateActiveContext() {
+    const startedAt = Date.now()
+    logger.info('context.hydrate.start', {
+      contextId: activeContextId.value,
+    })
     // Capability-based selection: prefer OPFS when the browser supports
     // it, falling back to IndexedDB. Writes flow to whichever backend
     // is selected; reads layer-fall-through so existing IDB content
@@ -2481,8 +2681,14 @@ export const useOutlineStore = defineStore('outline', () => {
     try {
       const initial = await selectMediaAdapter()
       mediaBackend.value = initial?.backend || 'idb'
+      logger.info('media.backend.select.success', {
+        backend: mediaBackend.value,
+        contextId: activeContextId.value,
+      })
     } catch (error) {
-      console.warn('Media adapter selection failed; using default:', error)
+      logger.error('media.backend.select.failed', error, {
+        contextId: activeContextId.value,
+      })
     }
 
     // Migrate any pre-existing inline `data:` URIs in long-note HTML and
@@ -2492,7 +2698,9 @@ export const useOutlineStore = defineStore('outline', () => {
     try {
       await runMediaMigration()
     } catch (error) {
-      console.warn('Media migration failed:', error)
+      logger.error('media.dataUriMigration.failed', error, {
+        contextId: activeContextId.value,
+      })
     }
 
     await refreshMediaUsage()
@@ -2511,16 +2719,40 @@ export const useOutlineStore = defineStore('outline', () => {
           await saveVersion(null, 'auto-start')
         }
       } catch (error) {
-        console.warn('Failed to parse program-settings during init:', error)
+        logger.error('app.init.programSettings.parse.failed', error, {
+          contextId: activeContextId.value,
+        })
       }
     }
+
+    logger.info('context.hydrate.success', {
+      contextId: activeContextId.value,
+      backend: mediaBackend.value,
+      mediaCount: mediaUsage.value.count,
+      durationMs: Date.now() - startedAt,
+    })
   }
 
   const initPromise = (async () => {
-    await initContexts()
-    await loadFromStorage()
-    registerProjectLockUnloadHandlers()
-    await hydrateActiveContext()
+    const initStartedAt = Date.now()
+    logger.info('app.init.start')
+    try {
+      await initContexts()
+      await loadFromStorage()
+      registerProjectLockUnloadHandlers()
+      await hydrateActiveContext()
+      logger.info('app.init.success', {
+        durationMs: Date.now() - initStartedAt,
+        activeContextId: activeContextId.value,
+        projectsLoaded: projects.value.length,
+        backend: mediaBackend.value,
+      })
+    } catch (error) {
+      logger.error('app.init.failed', error, {
+        durationMs: Date.now() - initStartedAt,
+      })
+      throw error
+    }
   })()
 
   return {

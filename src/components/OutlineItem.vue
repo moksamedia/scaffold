@@ -368,6 +368,7 @@ import { splitScriptRuns } from 'src/utils/text/script-runs'
 import LongNoteRenderer from './LongNoteRenderer.vue'
 import { ingestBlob, ingestDataUrl } from 'src/utils/media/ingest.js'
 import { getMediaResolver } from 'src/utils/media/index.js'
+import { logger } from 'src/utils/logging/logger.js'
 import {
   buildMediaRef,
   normalizeHtmlToRefs,
@@ -774,7 +775,9 @@ async function saveVersionBeforeDelete() {
   try {
     await store.saveVersion(null, 'auto-delete')
   } catch (error) {
-    console.error('Failed to save pre-delete version:', error)
+    logger.error('version.saveBeforeDelete.failed', error, {
+      component: 'OutlineItem',
+    })
   }
 }
 
@@ -854,7 +857,11 @@ function promptInsertAudioUpload() {
           '</audio><button type="button" class="remove-embedded-audio-btn" data-remove-audio="true" contenteditable="false" title="Remove audio" aria-label="Remove audio">✕</button></p>',
       )
     } catch (err) {
-      console.error('Audio upload failed:', err)
+      logger.error('media.upload.audio.failed', err, {
+        component: 'OutlineItem',
+        sizeBytes: file.size,
+        mime: file.type || null,
+      })
       $q.notify({
         type: 'negative',
         message: 'Could not read the selected audio file.',
@@ -887,7 +894,11 @@ function promptInsertImageUpload() {
         `<p><img src="${escapeAttribute(blobUrl)}" alt="${escapeAttribute(file.name)}" data-media-hash="${hash}" /></p>`,
       )
     } catch (err) {
-      console.error('Image upload failed:', err)
+      logger.error('media.upload.image.failed', err, {
+        component: 'OutlineItem',
+        sizeBytes: file.size,
+        mime: file.type || null,
+      })
       $q.notify({
         type: 'negative',
         message: 'Could not read the selected image file.',

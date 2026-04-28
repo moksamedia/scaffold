@@ -1,5 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { makeItem, makeProject, makeDivider } from './fixtures/projects.js'
+import {
+  clearLogs,
+  getRecentLogs,
+  LEVELS,
+  setLevel,
+} from 'src/utils/logging/logger.js'
 
 vi.mock('docx', () => {
   const state = {
@@ -139,11 +145,14 @@ describe('DOCX semantic structure', () => {
 
   it('logs error and returns when packing fails', async () => {
     // This protects the user experience path where export fails gracefully.
-    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    setLevel(LEVELS.ERROR)
+    clearLogs()
     __mockDocx.setThrow(true)
 
     await exportAsDocx(makeProject({ lists: [makeItem({ id: 'a' })] }))
 
-    expect(errorSpy).toHaveBeenCalled()
+    const errorEvents = getRecentLogs().filter((r) => r.level === 'error')
+    expect(errorEvents.length).toBeGreaterThan(0)
+    expect(errorEvents.some((r) => r.event === 'export.docx.failed')).toBe(true)
   })
 })

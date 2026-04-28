@@ -30,6 +30,7 @@ A powerful hierarchical outline and note-taking application built with Vue 3 and
 - **Long Note Media Tools**: Insert image URLs, upload small images, and insert audio URLs in long notes
 - **Content-Addressable Media Store**: Uploaded images and audio are deduped by SHA-256 hash and stored once in IndexedDB; long-note HTML, version snapshots, and JSON exports carry only `scaffold-media://<hash>` references
 - **Storage Guardrails**: Warns on high browser storage usage and save failures (for example quota limits)
+- **Diagnostics & Logging**: Structured `debug`/`info`/`error` logs across startup, context switching, media, and import/export, with a redaction-aware in-memory ring buffer the user can copy or download from the Settings dialog when reporting issues
 - **GitHub Pages Deployment**: Deploy directly to GitHub Pages with automated CI/CD
 
 ## Installation & Setup
@@ -273,11 +274,13 @@ src/
 │   │   ├── s3-adapter.js          # Phase 4: S3-compatible adapter (HEAD/GET/PUT/DELETE/LIST)
 │   │   ├── s3-config.js           # S3 credential persistence (session or AES-GCM/PBKDF2)
 │   │   └── index.js               # singleton accessors + capability-based selection
-│   └── storage/             # Storage abstraction
-│       ├── storage-adapter.js  # IndexedDB v2 + localStorage backends, including media methods
-│       ├── context-scoped.js   # Wrapper that namespaces meta keys under ctx:<id>:
-│       ├── index.js         # Singleton accessor for the storage adapter (scoped + base)
-│       └── migration.js     # localStorage→IndexedDB migration state machine
+│   ├── storage/             # Storage abstraction
+│   │   ├── storage-adapter.js  # IndexedDB v2 + localStorage backends, including media methods
+│   │   ├── context-scoped.js   # Wrapper that namespaces meta keys under ctx:<id>:
+│   │   ├── index.js         # Singleton accessor for the storage adapter (scoped + base)
+│   │   └── migration.js     # localStorage→IndexedDB migration state machine
+│   └── logging/             # Application logger
+│       └── logger.js        # Structured debug/info/error logger with redaction + in-memory ring buffer
 ├── layouts/             # Application layouts
 └── pages/               # Route pages
 ```
@@ -308,3 +311,25 @@ For bug reports, feature requests, or questions:
 - Create an issue in the repository
 - Include detailed reproduction steps for bugs
 - Specify your browser and version for compatibility issues
+- Open **Settings → Program Settings → Diagnostics** and click **Copy diagnostics** or **Download diagnostics** to attach the most recent 200 structured log entries to your report. Sensitive fields (S3 secrets, passphrases, auth headers) are redacted before they leave the buffer.
+
+### Reporting an Issue (Diagnostics Workflow)
+
+1. Reproduce the bug while the app is open.
+2. Open **Settings → Program Settings → Diagnostics** at the bottom of the tab.
+3. Click **Copy diagnostics** to put the JSON payload on your clipboard, or **Download diagnostics** to save a `scaffold-diagnostics-*.json` file.
+4. Paste/attach the payload to your issue report along with the steps to reproduce.
+
+For deeper investigations, support staff can ask you to enable verbose logs by running this in the browser console and reloading:
+
+```js
+localStorage.setItem('scaffold-log-level', 'debug')
+```
+
+To return to the default verbosity:
+
+```js
+localStorage.removeItem('scaffold-log-level')
+```
+
+The structured log schema is `{ level, event, ts, ...payload }`, with stable dot-style event ids (e.g. `app.init.success`, `context.switch.failed`, `media.backend.select.failed`, `import.failed`).

@@ -220,6 +220,7 @@ import { computed, ref, watch } from 'vue'
 import { useOutlineStore } from 'stores/outline-store'
 import { storeToRefs } from 'pinia'
 import { useQuasar } from 'quasar'
+import { logger } from 'src/utils/logging/logger.js'
 
 const store = useOutlineStore()
 const $q = useQuasar()
@@ -263,6 +264,11 @@ watch(showManageDialog, async (visible) => {
 
 async function onSelectContext(id) {
   if (id === activeContextId.value) return
+  logger.debug('context.switch.userIntent', {
+    component: 'ContextSwitcher',
+    fromContextId: activeContextId.value,
+    toContextId: id,
+  })
   try {
     const ok = await store.switchContext(id)
     if (ok) {
@@ -274,6 +280,10 @@ async function onSelectContext(id) {
       })
     }
   } catch (error) {
+    logger.error('context.switch.userFlow.failed', error, {
+      component: 'ContextSwitcher',
+      toContextId: id,
+    })
     $q.notify({
       type: 'negative',
       message: `Could not switch context: ${error.message}`,
@@ -315,6 +325,10 @@ async function confirmCreateContext() {
       timeout: 2000,
     })
   } catch (error) {
+    logger.error('context.create.userFlow.failed', error, {
+      component: 'ContextSwitcher',
+      cloneFromCurrent,
+    })
     $q.notify({
       type: 'negative',
       message: `Could not create context: ${error.message}`,
@@ -345,6 +359,10 @@ async function confirmRename(id) {
   try {
     await store.renameContextById(id, newName)
   } catch (error) {
+    logger.error('context.rename.userFlow.failed', error, {
+      component: 'ContextSwitcher',
+      contextId: id,
+    })
     $q.notify({
       type: 'negative',
       message: `Rename failed: ${error.message}`,
@@ -390,6 +408,10 @@ function confirmDelete(ctx) {
         timeout: 2000,
       })
     } catch (error) {
+      logger.error('context.delete.userFlow.failed', error, {
+        component: 'ContextSwitcher',
+        contextId: ctx.id,
+      })
       $q.notify({
         type: 'negative',
         message: `Delete failed: ${error.message}`,

@@ -19,6 +19,7 @@ import {
 import { createS3MediaAdapter } from './s3-adapter.js'
 import { createCachingMediaAdapter } from './cached-adapter.js'
 import { getS3Credentials, loadS3Config } from './s3-config.js'
+import { logger } from '../logging/logger.js'
 
 let _adapter = null
 
@@ -135,7 +136,7 @@ export async function selectMediaAdapter(overrides = {}) {
     }
   } catch (error) {
     // Fall through to lower tiers when the S3 config is unreadable.
-    console.warn('S3 media adapter unavailable, falling back:', error)
+    logger.error('media.backend.tier.s3.failed', error, { tier: 's3' })
     // #region agent log
     fetch('http://127.0.0.1:7652/ingest/aa926f98-514d-4a15-a6d3-0b9951fec4e7',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'53352e'},body:JSON.stringify({sessionId:'53352e',hypothesisId:'D',location:'media/index.js:selectMediaAdapter:s3-error',message:'S3 tier threw',data:{error:String(error?.message||error)},timestamp:Date.now()})}).catch(()=>{});
     // #endregion
@@ -157,7 +158,9 @@ export async function selectMediaAdapter(overrides = {}) {
       }
     } catch (error) {
       // Fall through to OPFS / IDB and let Settings UI re-prompt later.
-      console.warn('User-folder media adapter unavailable, falling back:', error)
+      logger.error('media.backend.tier.userfolder.failed', error, {
+        tier: 'userfolder',
+      })
     }
   }
 
@@ -168,17 +171,26 @@ export async function selectMediaAdapter(overrides = {}) {
       await opfsAdapter.listHashes()
       const idbAdapter = createIdb()
       setMediaAdapter(createLayeredMediaAdapter([opfsAdapter, idbAdapter]))
+      // #region agent log
+      fetch('http://127.0.0.1:7652/ingest/aa926f98-514d-4a15-a6d3-0b9951fec4e7',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'53352e'},body:JSON.stringify({sessionId:'53352e',hypothesisId:'A',location:'media/index.js:selectMediaAdapter:tier3-opfs+idb',message:'Selected OPFS+IDB tier (no S3)',data:{},timestamp:Date.now()})}).catch(()=>{});
+      // #endregion
       return { backend: 'opfs+idb', error: null }
     } catch (error) {
       // Fall through to IDB.
       const idbAdapter = createIdb()
       setMediaAdapter(idbAdapter)
+      // #region agent log
+      fetch('http://127.0.0.1:7652/ingest/aa926f98-514d-4a15-a6d3-0b9951fec4e7',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'53352e'},body:JSON.stringify({sessionId:'53352e',hypothesisId:'A',location:'media/index.js:selectMediaAdapter:tier3->idb',message:'OPFS failed, fell through to IDB',data:{error:String(error?.message||error)},timestamp:Date.now()})}).catch(()=>{});
+      // #endregion
       return { backend: 'idb', error }
     }
   }
 
   // Tier 4: IDB only.
   setMediaAdapter(createIdb())
+  // #region agent log
+  fetch('http://127.0.0.1:7652/ingest/aa926f98-514d-4a15-a6d3-0b9951fec4e7',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'53352e'},body:JSON.stringify({sessionId:'53352e',hypothesisId:'A',location:'media/index.js:selectMediaAdapter:tier4-idb',message:'Fell through to IDB tier',data:{},timestamp:Date.now()})}).catch(()=>{});
+  // #endregion
   return { backend: 'idb', error: null }
 }
 

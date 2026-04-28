@@ -2,6 +2,7 @@ import { beforeEach, vi } from 'vitest'
 import { setActiveContextId, setStorageAdapter } from 'src/utils/storage/index.js'
 import { createLocalStorageAdapter } from 'src/utils/storage/storage-adapter.js'
 import { resetMediaAdapter, resetMediaResolver } from 'src/utils/media/index.js'
+import { clearLogs, LEVELS, setLevel, setSink } from 'src/utils/logging/logger.js'
 
 beforeEach(() => {
   localStorage.clear()
@@ -12,6 +13,10 @@ beforeEach(() => {
   setActiveContextId(null)
   resetMediaAdapter()
   resetMediaResolver()
+  // Silence app logger during tests (individual tests can re-enable).
+  setSink(() => {})
+  setLevel(LEVELS.ERROR)
+  clearLogs()
 })
 
 // Stub HTMLAnchorElement.click globally so download-triggering code

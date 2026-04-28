@@ -22,6 +22,7 @@ import {
   loadContextRegistry,
   setStoredActiveContextId,
 } from './session.js'
+import { logger } from '../logging/logger.js'
 
 // Meta keys that historically lived at the meta-store root and now
 // belong inside the active context. Anything app-wide that isn't
@@ -70,7 +71,10 @@ export async function runContextMigration() {
       await base.saveProjects([])
     }
   } catch (error) {
-    console.warn('Context migration: failed to move legacy projects:', error)
+    logger.error('context.migration.legacyProjects.failed', error, {
+      phase: 'projects',
+      contextId: targetCtx.id,
+    })
   }
 
   // 2. Move legacy flat meta keys → ctx-prefixed.
@@ -82,7 +86,11 @@ export async function runContextMigration() {
         await base.deleteMeta(key)
       }
     } catch (error) {
-      console.warn(`Context migration: failed to move ${key}:`, error)
+      logger.error('context.migration.flatMeta.failed', error, {
+        phase: 'flatMeta',
+        legacyKey: key,
+        contextId: targetCtx.id,
+      })
     }
   }
 
@@ -98,14 +106,19 @@ export async function runContextMigration() {
           await base.setMeta(`${prefix}${entry.key}`, entry.value)
           await base.deleteMeta(entry.key)
         } catch (error) {
-          console.warn(`Context migration: failed to move ${entry.key}:`, error)
+          logger.error('context.migration.prefixMeta.move.failed', error, {
+            phase: 'prefixMeta',
+            legacyKey: entry.key,
+            contextId: targetCtx.id,
+          })
         }
       }
     } catch (error) {
-      console.warn(
-        `Context migration: failed to enumerate prefix ${legacyPrefix}:`,
-        error,
-      )
+      logger.error('context.migration.prefixMeta.enumerate.failed', error, {
+        phase: 'prefixMeta',
+        legacyPrefix,
+        contextId: targetCtx.id,
+      })
     }
   }
 
@@ -114,7 +127,10 @@ export async function runContextMigration() {
   try {
     await setStoredActiveContextId(targetCtx.id)
   } catch (error) {
-    console.warn('Context migration: failed to set active context id:', error)
+    logger.error('context.migration.setActive.failed', error, {
+      phase: 'activeContext',
+      contextId: targetCtx.id,
+    })
   }
 
   return { migrated: true, contextId: targetCtx.id }

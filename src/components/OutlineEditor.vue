@@ -184,6 +184,7 @@ import { useOutlineStore } from 'stores/outline-store'
 import { storeToRefs } from 'pinia'
 import { useQuasar } from 'quasar'
 import OutlineItem from './OutlineItem.vue'
+import { logger } from 'src/utils/logging/logger.js'
 
 const store = useOutlineStore()
 const { currentProject, canUndo, canRedo, allLongNotesVisible } = storeToRefs(store)
@@ -264,6 +265,11 @@ async function confirmExportAsJSON() {
       format: exportFormat.value,
     })
   } catch (error) {
+    logger.error('export.single.userFlow.failed', error, {
+      component: 'OutlineEditor',
+      format: exportFormat.value,
+      includeVersionHistory: includeVersionHistoryOnExport.value,
+    })
     $q.notify({
       type: 'negative',
       message: `Export failed: ${error.message}`,

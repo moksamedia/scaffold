@@ -291,6 +291,7 @@ import { useOutlineStore } from 'stores/outline-store'
 import { storeToRefs } from 'pinia'
 import { useQuasar } from 'quasar'
 import { isProjectLockStorageKey } from 'src/utils/project-tab-lock'
+import { logger } from 'src/utils/logging/logger.js'
 
 const store = useOutlineStore()
 const $q = useQuasar()
@@ -417,7 +418,10 @@ async function confirmDeleteProject(project) {
         deleteSharedMediaCount.value = orphans?.size || 0
       }
     } catch (error) {
-      console.warn('Failed to compute orphaned media for delete prompt:', error)
+      logger.error('project.delete.orphanScan.failed', error, {
+        component: 'ProjectsSidebar',
+        projectId: project.id,
+      })
     }
   }
 }
@@ -430,6 +434,11 @@ async function deleteSelectedProject() {
   try {
     await store.deleteProject(target.id, { purgeRemoteMedia })
   } catch (error) {
+    logger.error('project.delete.failed', error, {
+      component: 'ProjectsSidebar',
+      projectId: target.id,
+      purgeRemoteMedia,
+    })
     $q.notify({
       type: 'negative',
       message: `Delete failed: ${error.message}`,
@@ -547,6 +556,11 @@ async function confirmExportAllProjects() {
       format: exportAllFormat.value,
     })
   } catch (error) {
+    logger.error('export.all.failed', error, {
+      component: 'ProjectsSidebar',
+      format: exportAllFormat.value,
+      includeVersionHistory: includeVersionHistoryOnExportAll.value,
+    })
     $q.notify({
       type: 'negative',
       message: `Export failed: ${error.message}`,
@@ -576,7 +590,16 @@ async function handleImportJSON() {
     })
     refreshProjectLockState()
   } catch (error) {
-    if (error?.message === 'No file selected') return
+    if (error?.message === 'No file selected') {
+      logger.debug('import.cancelled', {
+        component: 'ProjectsSidebar',
+        reason: 'no-file-selected',
+      })
+      return
+    }
+    logger.error('import.userFlow.failed', error, {
+      component: 'ProjectsSidebar',
+    })
     $q.notify({
       type: 'negative',
       message: `Import failed: ${error.message}`,
