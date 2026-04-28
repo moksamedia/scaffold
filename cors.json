@@ -1,0 +1,23 @@
+[
+  {
+    "origin": [
+      "http://localhost:9000",
+      "http://127.0.0.1:9000",
+      "https://moksamedia.github.io"
+    ],
+    "method": ["GET", "HEAD", "PUT", "POST", "DELETE"],
+    "responseHeader": [
+      "Authorization",
+      "Content-Type",
+      "Content-Length",
+      "Content-MD5",
+      "ETag",
+      "Host",
+      "x-amz-content-sha256",
+      "x-amz-date",
+      "x-amz-meta-mime",
+      "x-amz-meta-createdat"
+    ],
+    "maxAgeSeconds": 3600
+  }
+]

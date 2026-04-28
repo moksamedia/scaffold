@@ -59,9 +59,14 @@ Save this policy to a file (`cors.json`):
     ],
     "method": ["GET", "HEAD", "PUT", "POST", "DELETE"],
     "responseHeader": [
+      "Authorization",
       "Content-Type",
       "Content-Length",
+      "Content-MD5",
       "ETag",
+      "Host",
+      "x-amz-content-sha256",
+      "x-amz-date",
       "x-amz-meta-mime",
       "x-amz-meta-createdat"
     ],
@@ -69,6 +74,19 @@ Save this policy to a file (`cors.json`):
   }
 ]
 ```
+
+> **Important — `responseHeader` is dual-purpose.** GCS uses this single
+> field to populate BOTH `Access-Control-Expose-Headers` (response) AND
+> `Access-Control-Allow-Headers` (preflight). If a request header your
+> client sends is not listed here, GCS will silently fail the preflight:
+> it returns `200 OK` with only `vary: Origin` and **no `Access-Control-*`
+> headers at all**, which the browser treats as a CORS rejection. SigV4
+> signed requests always send `Authorization`, `x-amz-content-sha256`,
+> and `x-amz-date`, so those three are mandatory in this list.
+
+Each entry's origin must be `scheme://host[:port]` only — no trailing
+path or slash. `https://example.com/app/` is a malformed origin and will
+make GCS reject the entire policy entry at runtime.
 
 Apply it to the bucket:
 
@@ -104,13 +122,81 @@ gcloud storage buckets describe gs://<bucket-name> --format='value(cors_config)'
 
 ## Troubleshooting
 
+### Diagnose CORS with `curl`
+
+The most reliable way to confirm the bucket's CORS policy is healthy is
+to run the same preflight the browser would send and inspect the raw
+response. Replace `<bucket-name>` and `<your-app-origin>`:
+
+```sh
+curl -v -X OPTIONS \
+  'https://storage.googleapis.com/<bucket-name>/?list-type=2&prefix=scaffold%2Fmedia%2F' \
+  -H 'Origin: <your-app-origin>' \
+  -H 'Access-Control-Request-Method: GET' \
+  -H 'Access-Control-Request-Headers: authorization,x-amz-content-sha256,x-amz-date'
+```
+
+**Broken response** (rule didn't match — usually because the requested
+headers aren't in `responseHeader`, or the origin doesn't match):
+
+```text
+< HTTP/2 200
+< vary: Origin
+< server: UploadServer
+< content-type: text/html; charset=UTF-8
+```
+
+Note: status `200`, only `vary: Origin`, **no `access-control-*` headers
+at all**. The browser will reject this preflight even though the status
+code is `200`.
+
+**Healthy response** (rule matched):
+
+```text
+< HTTP/2 200
+< access-control-allow-origin: <your-app-origin>
+< access-control-max-age: 3600
+< access-control-allow-methods: GET,HEAD,PUT,POST,DELETE
+< access-control-allow-headers: Authorization,Content-Type,Content-Length,...,x-amz-content-sha256,x-amz-date,...
+< vary: Origin
+```
+
+If you see the broken pattern, fix the policy and re-apply with
+`gcloud storage buckets update gs://<bucket-name> --cors-file=cors.json`.
+
 ### CORS still failing after applying the policy
 
-- The browser caches CORS preflights for `maxAgeSeconds`. Hard-reload
-  the app or wait out the TTL.
-- Make sure the `origin` list includes the exact URL the app is loaded
-  from, including scheme, host, and port. `http://localhost:9000` is
-  not the same as `http://127.0.0.1:9000`.
+- **`responseHeader` is missing the SigV4 headers.** This is the most
+  common cause and the trickiest to spot because the bucket's
+  `cors_config` looks correct in `gcloud describe`. See the [Important
+  callout in step 3](#3-configure-cors-on-the-bucket-required) — every
+  header your client sends in a preflight (`Access-Control-Request-Headers`)
+  must appear in `responseHeader`. Scaffold sends `Authorization`,
+  `x-amz-content-sha256`, and `x-amz-date` on every signed request.
+- **One malformed origin invalidates the whole rule.** GCS rejects rules
+  containing origins with paths or trailing slashes (e.g.
+  `https://example.com/app/`) without a clear error message. Origins
+  must be `scheme://host[:port]` only.
+- **Browser preflight cache.** The browser caches preflights for
+  `maxAgeSeconds`. Hard-reload (Cmd+Shift+R / Ctrl+Shift+R) or wait
+  out the TTL.
+- **Origin scheme/host/port mismatch.** `http://localhost:9000` is not
+  the same as `http://127.0.0.1:9000`. List both if the app is reachable
+  via either.
+
+### Runtime symptoms inside Scaffold
+
+When CORS is broken, Scaffold's diagnostics ring buffer (Settings →
+Diagnostics → Export) will show:
+
+- `media.s3.list.network.failed` with
+  `errorMessage: "NetworkError when attempting to fetch resource."`
+- The Project tab Media files table will show "S3 unreachable" badges
+  (when the policy is broken) or "Stored locally" badges (when S3 is
+  not configured at all).
+- The "Media not yet on S3" banner will not appear even if local-only
+  media exists, because the inventory cannot determine remote presence
+  to compare against.
 
 ### `403 SignatureDoesNotMatch`
 
