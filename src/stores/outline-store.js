@@ -88,6 +88,20 @@ export const useOutlineStore = defineStore('outline', () => {
   /** Aggregate media-store usage (count of blobs + total bytes) for Settings. */
   const mediaUsage = ref({ count: 0, bytes: 0 })
   const mediaBackend = ref('idb')
+  // Last-known error from a remote-tier list call (S3 LIST). Set by any
+  // function that calls `listRemoteHashes` / `getStats` / `listHashes`
+  // when the active backend has a remote tier; cleared on the next
+  // success. Exposed so the Settings dialog can render a banner the
+  // moment any S3 LIST fails, regardless of which project is current
+  // or whether the inventory view has been opened.
+  const mediaRemoteListError = ref(null)
+  function setMediaRemoteListError(error) {
+    if (!error) {
+      mediaRemoteListError.value = null
+      return
+    }
+    mediaRemoteListError.value = String(error?.message || error)
+  }
   let mediaGcTimer = null
   /** Idle GC frequency. Tests can stub setInterval to verify wiring. */
   const MEDIA_GC_INTERVAL_MS = 10 * 60 * 1000
@@ -385,11 +399,13 @@ export const useOutlineStore = defineStore('outline', () => {
           adapter.listRemoteHashes(),
           adapter.listCachedHashes(),
         ])
+        setMediaRemoteListError(null)
       } catch (error) {
         logger.error('media.sync.listHashes.failed', error, {
           backend: mediaBackend.value,
           projectId,
         })
+        setMediaRemoteListError(error)
         return new Set()
       }
     const remoteSet = new Set(remoteHashes)
@@ -444,6 +460,7 @@ export const useOutlineStore = defineStore('outline', () => {
         adapter.listCachedHashes(),
         adapter.listRemoteHashes(),
       ])
+      setMediaRemoteListError(null)
       const remoteSet = new Set(remoteHashes)
       const out = new Set()
       for (const hash of cacheHashes) {
@@ -455,6 +472,7 @@ export const useOutlineStore = defineStore('outline', () => {
         backend: mediaBackend.value,
         scope: 'all',
       })
+      setMediaRemoteListError(error)
       return new Set()
     }
   }
@@ -547,12 +565,14 @@ export const useOutlineStore = defineStore('outline', () => {
         ])
         cacheHashes = new Set(c)
         remoteHashes = new Set(r)
+        setMediaRemoteListError(null)
       } catch (error) {
         logger.error('media.inventory.tierList.failed', error, {
           backend: mediaBackend.value,
           projectId,
         })
         listError = String(error?.message || error)
+        setMediaRemoteListError(error)
       }
     }
     logger.debug('media.inventory.tiers', {
@@ -1810,10 +1830,14 @@ export const useOutlineStore = defineStore('outline', () => {
         count: stats?.count || 0,
         bytes: stats?.bytes || 0,
       }
+      // getStats() on layered S3 backends issues a remote LIST. A
+      // successful return clears any previous unreachable signal.
+      if (mediaBackendSupportsRemoteSync()) setMediaRemoteListError(null)
     } catch (error) {
       logger.error('media.usage.refresh.failed', error, {
         backend: mediaBackend.value,
       })
+      if (mediaBackendSupportsRemoteSync()) setMediaRemoteListError(error)
     }
     return mediaUsage.value
   }
@@ -1845,6 +1869,10 @@ export const useOutlineStore = defineStore('outline', () => {
   // so the active adapter immediately reflects the new choice.
   async function reselectMediaBackend() {
     const previous = mediaBackend.value
+    // Clear the stale unreachable signal: the about-to-be-installed
+    // adapter hasn't been probed yet. refreshMediaUsage below will
+    // set it again if the new backend's first LIST also fails.
+    setMediaRemoteListError(null)
     try {
       const result = await selectMediaAdapter()
       mediaBackend.value = result?.backend || 'idb'
@@ -2872,6 +2900,7 @@ export const useOutlineStore = defineStore('outline', () => {
     storageUsageRatio,
     mediaUsage,
     mediaBackend,
+    mediaRemoteListError,
     refreshMediaUsage,
     triggerMediaGc,
     reselectMediaBackend,

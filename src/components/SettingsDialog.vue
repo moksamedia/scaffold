@@ -177,6 +177,34 @@
                 </span>
               </div>
 
+              <q-banner
+                v-if="store.mediaRemoteListError && s3ConfigState.configured"
+                rounded
+                class="bg-red-1 text-red-10 q-mb-md"
+              >
+                <template v-slot:avatar>
+                  <q-icon name="error" color="negative" />
+                </template>
+                <div class="text-subtitle2">Can't reach your S3 bucket</div>
+                <div class="text-body2">
+                  Scaffold is connected to
+                  <strong>{{ s3ConfigState.bucket || 'your bucket' }}</strong>
+                  but the browser blocked the request. This is almost
+                  always a CORS configuration issue on the bucket —
+                  check that the bucket allows
+                  <code>GET, HEAD, PUT, POST, DELETE</code>
+                  from this site's origin and exposes
+                  <code>ETag</code> and <code>Content-Length</code>.
+                  See <code>GCS_S3_SETUP.md</code> /
+                  <code>R2_S3_SETUP.md</code> in the project for the
+                  full policy. Until this is resolved, media stays on
+                  this device.
+                </div>
+                <div class="text-caption q-mt-xs">
+                  Last error: <code>{{ store.mediaRemoteListError }}</code>
+                </div>
+              </q-banner>
+
               <div v-if="!userFolderApiAvailable" class="text-caption text-grey-7 q-mb-sm">
                 Choosing a folder for media storage requires a Chromium-based browser
                 (Chrome, Edge, or Brave). Other browsers will continue to use
@@ -504,6 +532,34 @@
             <div class="text-h6 q-mb-md">Settings for: {{ currentProject?.name }}</div>
 
             <q-banner
+              v-if="store.mediaRemoteListError && s3ConfigState.configured"
+              rounded
+              class="bg-red-1 text-red-10 q-mb-lg"
+            >
+              <template v-slot:avatar>
+                <q-icon name="error" color="negative" />
+              </template>
+              <div class="text-subtitle2">Can't reach your S3 bucket</div>
+              <div class="text-body2">
+                Scaffold is connected to
+                <strong>{{ s3ConfigState.bucket || 'your bucket' }}</strong>
+                but the browser blocked the request. This is almost
+                always a CORS configuration issue on the bucket — check
+                that the bucket allows
+                <code>GET, HEAD, PUT, POST, DELETE</code>
+                from this site's origin and exposes <code>ETag</code>
+                and <code>Content-Length</code>. See
+                <code>GCS_S3_SETUP.md</code> /
+                <code>R2_S3_SETUP.md</code> in the project for the full
+                policy. Until this is resolved, media stays on this
+                device.
+              </div>
+              <div class="text-caption q-mt-xs">
+                Last error: <code>{{ store.mediaRemoteListError }}</code>
+              </div>
+            </q-banner>
+
+            <q-banner
               v-if="currentProject"
               dense
               rounded
@@ -560,30 +616,6 @@
               </q-list>
             </q-expansion-item>
 
-            <q-banner
-              v-if="currentProject && projectHasRemoteUnreachable"
-              rounded
-              class="bg-red-1 text-red-10 q-mb-lg"
-            >
-              <template v-slot:avatar>
-                <q-icon name="error" color="negative" />
-              </template>
-              <div class="text-subtitle2">Can't reach your S3 bucket</div>
-              <div class="text-body2">
-                Scaffold is connected to
-                <strong>{{ s3ConfigState.bucket || 'your bucket' }}</strong>
-                but the browser blocked the request. This is almost
-                always a CORS configuration issue on the bucket — check
-                that the bucket allows
-                <code>GET, HEAD, PUT, POST, DELETE</code>
-                from this site's origin and exposes <code>ETag</code>
-                and <code>Content-Length</code>. See
-                <code>GCS_S3_SETUP.md</code> /
-                <code>R2_S3_SETUP.md</code> in the project for the full
-                policy. Until this is resolved, media stays on this
-                device and badges below show "S3 unreachable".
-              </div>
-            </q-banner>
             <q-banner
               v-if="currentProject && projectUnsyncedHashes.size > 0"
               rounded
@@ -998,13 +1030,6 @@ const projectMediaInventory = ref([])
 const showProjectMediaList = ref(false)
 const projectLocalOnlyMediaCount = computed(() =>
   projectMediaInventory.value.filter((entry) => entry.inCache && entry.inRemote !== true).length,
-)
-// True when the project references at least one media hash and the
-// active layered backend's remote-listing call failed. Distinct from
-// "no S3 configured" — it means S3 is set up but the bucket isn't
-// reachable from the browser (typically a CORS misconfiguration).
-const projectHasRemoteUnreachable = computed(() =>
-  projectMediaInventory.value.some((entry) => entry.inRemote === 'unknown'),
 )
 
 // Media storage backend UI state
@@ -1626,6 +1651,9 @@ async function backfillAllToS3() {
  */
 async function refreshProjectMediaUsage() {
   if (!currentProject.value) {
+    logger.debug('settings.project.mediaUsage.skipped', {
+      reason: 'no current project',
+    })
     projectMediaUsage.value = { imageBytes: 0, audioBytes: 0 }
     projectMediaInventory.value = []
     return
