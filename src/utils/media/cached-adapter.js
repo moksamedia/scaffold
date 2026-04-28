@@ -28,6 +28,14 @@
  *    when present so a `sharedBucket=true` S3 adapter still honors the
  *    request), then evicts the cache. Used by the project-deletion
  *    prompt to purge media this device uniquely references.
+ *  - listCachedHashes() / listRemoteHashes(): expose each tier
+ *    individually so callers can compute "what's local but not on
+ *    remote yet" without depending on the localGcOnly flag.
+ *  - backfillRemoteFromCache(): push every cache-only blob into the
+ *    remote. Used after enabling S3 on a device that already had
+ *    media stored locally (existing media is otherwise NEVER moved
+ *    to S3 — the cache stays the source of truth on reads, and only
+ *    new uploads are written through to remote).
  *
  * The wrapper keeps the same interface as a regular adapter so it can
  * be swapped into the singleton via `setMediaAdapter`.
@@ -115,6 +123,76 @@ export function createCachingMediaAdapter({ remote, cache, localGcOnly = false }
     return remote.getStats()
   }
 
+  async function listCachedHashes() {
+    return cache.listHashes()
+  }
+
+  async function listRemoteHashes() {
+    return remote.listHashes()
+  }
+
+  /**
+   * Push every cache-only blob into the remote. Used after the user
+   * connects S3 to a device that already had media stored locally —
+   * those bytes are NOT auto-migrated by `selectMediaAdapter`,
+   * because the existing local store becomes the cache and reads
+   * never round-trip to remote. Without this method, other devices
+   * pointing at the same bucket would resolve those hashes to 404
+   * and render the "media unavailable" placeholder.
+   *
+   * @param {{
+   *   hashes?: string[] | Iterable<string>,
+   *   onProgress?: (info: { index: number, total: number, hash: string, uploaded: number, skipped: number, failed: number }) => void,
+   * }} [options]
+   * @returns {Promise<{ checked: number, uploaded: number, skipped: number, failed: number }>}
+   */
+  async function backfillRemoteFromCache(options = {}) {
+    let candidates
+    if (options.hashes) {
+      candidates = Array.from(options.hashes)
+    } else {
+      const cacheHashes = await cache.listHashes()
+      const remoteSet = new Set(await remote.listHashes())
+      candidates = cacheHashes.filter((h) => !remoteSet.has(h))
+    }
+    const stats = {
+      checked: candidates.length,
+      uploaded: 0,
+      skipped: 0,
+      failed: 0,
+    }
+    for (let i = 0; i < candidates.length; i++) {
+      const hash = candidates[i]
+      try {
+        const row = await cache.get(hash)
+        if (!row?.blob) {
+          stats.skipped++
+        } else if (await remote.has(hash)) {
+          // Lost the race: another client (or our own previous run)
+          // already uploaded this hash. Treat as success-by-no-op.
+          stats.skipped++
+        } else {
+          await remote.put(hash, row.blob, row.mime)
+          stats.uploaded++
+        }
+      } catch (error) {
+        console.warn(`Backfill of ${hash} failed:`, error)
+        stats.failed++
+      }
+      if (typeof options.onProgress === 'function') {
+        options.onProgress({
+          index: i + 1,
+          total: candidates.length,
+          hash,
+          uploaded: stats.uploaded,
+          skipped: stats.skipped,
+          failed: stats.failed,
+        })
+      }
+    }
+    return stats
+  }
+
   return {
     has,
     get,
@@ -123,5 +201,8 @@ export function createCachingMediaAdapter({ remote, cache, localGcOnly = false }
     forceDeleteFromRemote,
     listHashes,
     getStats,
+    listCachedHashes,
+    listRemoteHashes,
+    backfillRemoteFromCache,
   }
 }

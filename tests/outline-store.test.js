@@ -333,6 +333,149 @@ describe('Outline Store', () => {
     })
   })
 
+  // ─── Local-to-remote backfill (post-S3-connect) ──────────────────
+  describe('media backfill helpers', () => {
+    const HASH_LOCAL = 'd'.repeat(64)
+    const HASH_SHARED = 'e'.repeat(64)
+    const HASH_REMOTE = 'f'.repeat(64)
+
+    function withLongNoteHashes(itemOverrides, hashes) {
+      return makeItem({
+        ...itemOverrides,
+        longNotes: hashes.map((h, i) => ({
+          id: `${itemOverrides.id || 'note'}-${i}`,
+          text: `<p><img src="scaffold-media://${h}" /></p>`,
+          collapsed: false,
+        })),
+      })
+    }
+
+    function makeFakeS3Adapter({ cache = [], remote = [] } = {}) {
+      const cacheSet = new Set(cache)
+      const remoteSet = new Set(remote)
+      const calls = { backfillCalls: [] }
+      return {
+        adapter: {
+          has: async (h) => cacheSet.has(h) || remoteSet.has(h),
+          get: async () => null,
+          put: async () => {},
+          delete: async () => {},
+          listHashes: async () => Array.from(remoteSet),
+          getStats: async () => ({ count: remoteSet.size, bytes: 0 }),
+          listCachedHashes: async () => Array.from(cacheSet),
+          listRemoteHashes: async () => Array.from(remoteSet),
+          backfillRemoteFromCache: async ({ hashes } = {}) => {
+            const candidates = hashes
+              ? Array.from(hashes)
+              : Array.from(cacheSet).filter((h) => !remoteSet.has(h))
+            calls.backfillCalls.push(candidates.slice())
+            let uploaded = 0
+            for (const h of candidates) {
+              if (cacheSet.has(h) && !remoteSet.has(h)) {
+                remoteSet.add(h)
+                uploaded++
+              }
+            }
+            return {
+              checked: candidates.length,
+              uploaded,
+              skipped: candidates.length - uploaded,
+              failed: 0,
+            }
+          },
+        },
+        calls,
+        cacheSet,
+        remoteSet,
+      }
+    }
+
+    it('mediaBackendSupportsRemoteSync is false on local-only backends', async () => {
+      const store = useOutlineStore()
+      await store.initPromise
+      // Default IDB-style adapter does not expose backfill methods.
+      expect(store.mediaBackendSupportsRemoteSync()).toBe(false)
+    })
+
+    it('returns empty unsynced sets on local-only backends', async () => {
+      seedStore([makeProject({ id: 'p1', lists: [withLongNoteHashes({ id: 'i' }, [HASH_LOCAL])] })])
+      const store = await getStore()
+      const all = await store.getAllUnsyncedMedia()
+      const perProject = await store.getUnsyncedMediaForProject('p1')
+      expect(all.size).toBe(0)
+      expect(perProject.size).toBe(0)
+    })
+
+    it('getAllUnsyncedMedia returns cache hashes that are not on remote', async () => {
+      seedStore([makeProject({ id: 'p' })])
+      const store = await getStore()
+      const fake = makeFakeS3Adapter({
+        cache: [HASH_LOCAL, HASH_SHARED],
+        remote: [HASH_SHARED, HASH_REMOTE],
+      })
+      setMediaAdapter(fake.adapter)
+      try {
+        expect(store.mediaBackendSupportsRemoteSync()).toBe(true)
+        const result = await store.getAllUnsyncedMedia()
+        expect(Array.from(result)).toEqual([HASH_LOCAL])
+      } finally {
+        resetMediaAdapter()
+      }
+    })
+
+    it('getUnsyncedMediaForProject filters to refs in cache that are not on remote', async () => {
+      seedStore([
+        makeProject({
+          id: 'p1',
+          lists: [withLongNoteHashes({ id: 'i' }, [HASH_LOCAL, HASH_SHARED, HASH_REMOTE])],
+        }),
+      ])
+      const store = await getStore()
+
+      const fake = makeFakeS3Adapter({
+        cache: [HASH_LOCAL, HASH_SHARED],
+        remote: [HASH_SHARED, HASH_REMOTE],
+      })
+      setMediaAdapter(fake.adapter)
+      try {
+        const result = await store.getUnsyncedMediaForProject('p1')
+        // HASH_LOCAL: in cache, not in remote → unsynced.
+        // HASH_SHARED: in cache, in remote → already synced.
+        // HASH_REMOTE: in remote, not in cache → can't push from here, excluded.
+        expect(Array.from(result)).toEqual([HASH_LOCAL])
+      } finally {
+        resetMediaAdapter()
+      }
+    })
+
+    it('backfillMediaToRemote forwards hashes to the adapter and reports stats', async () => {
+      seedStore([makeProject({ id: 'p' })])
+      const store = await getStore()
+      const fake = makeFakeS3Adapter({
+        cache: [HASH_LOCAL, HASH_SHARED],
+        remote: [HASH_SHARED],
+      })
+      setMediaAdapter(fake.adapter)
+      try {
+        const stats = await store.backfillMediaToRemote([HASH_LOCAL])
+        expect(stats.supported).toBe(true)
+        expect(stats.uploaded).toBe(1)
+        expect(stats.failed).toBe(0)
+        expect(fake.calls.backfillCalls).toEqual([[HASH_LOCAL]])
+        expect(fake.remoteSet.has(HASH_LOCAL)).toBe(true)
+      } finally {
+        resetMediaAdapter()
+      }
+    })
+
+    it('backfillMediaToRemote returns supported:false on local-only backends', async () => {
+      const store = await getStore()
+      const stats = await store.backfillMediaToRemote([HASH_LOCAL])
+      expect(stats.supported).toBe(false)
+      expect(stats.uploaded).toBe(0)
+    })
+  })
+
   // ─── Outline operations ────────────────────────────────────────
   describe('outline operations', () => {
     let store

@@ -137,6 +137,96 @@ describe('createCachingMediaAdapter', () => {
     })
   })
 
+  describe('backfillRemoteFromCache', () => {
+    function seedBlob(adapter, hash, mime = 'image/png') {
+      const blob = new Blob([new Uint8Array([1, 2, 3])], { type: mime })
+      adapter.store.set(hash, { blob, mime, size: blob.size, createdAt: 0 })
+    }
+
+    it('listCachedHashes / listRemoteHashes expose each tier directly', async () => {
+      seedBlob(cache, 'in-cache')
+      seedBlob(remote, 'in-remote')
+      expect(await wrapped.listCachedHashes()).toEqual(['in-cache'])
+      expect(await wrapped.listRemoteHashes()).toEqual(['in-remote'])
+    })
+
+    it('uploads cache-only hashes to remote and skips ones already there', async () => {
+      seedBlob(cache, 'a')
+      seedBlob(cache, 'b')
+      seedBlob(cache, 'shared')
+      seedBlob(remote, 'shared')
+      seedBlob(remote, 'remote-only')
+
+      const stats = await wrapped.backfillRemoteFromCache()
+      expect(stats.checked).toBe(2)
+      expect(stats.uploaded).toBe(2)
+      expect(stats.skipped).toBe(0)
+      expect(stats.failed).toBe(0)
+      expect(remote.store.has('a')).toBe(true)
+      expect(remote.store.has('b')).toBe(true)
+      // remote-only is unaffected.
+      expect(remote.store.has('remote-only')).toBe(true)
+    })
+
+    it('idempotent: a second run does nothing', async () => {
+      seedBlob(cache, 'a')
+      await wrapped.backfillRemoteFromCache()
+      const stats = await wrapped.backfillRemoteFromCache()
+      expect(stats).toEqual({ checked: 0, uploaded: 0, skipped: 0, failed: 0 })
+    })
+
+    it('honors an explicit `hashes` whitelist (per-project backfill)', async () => {
+      seedBlob(cache, 'project-1-only')
+      seedBlob(cache, 'project-2-only')
+      const stats = await wrapped.backfillRemoteFromCache({
+        hashes: ['project-1-only'],
+      })
+      expect(stats.uploaded).toBe(1)
+      expect(remote.store.has('project-1-only')).toBe(true)
+      expect(remote.store.has('project-2-only')).toBe(false)
+    })
+
+    it('skips a whitelisted hash that is already on remote', async () => {
+      seedBlob(cache, 'h')
+      seedBlob(remote, 'h')
+      const stats = await wrapped.backfillRemoteFromCache({ hashes: ['h'] })
+      expect(stats.checked).toBe(1)
+      expect(stats.uploaded).toBe(0)
+      expect(stats.skipped).toBe(1)
+    })
+
+    it('counts failures without aborting subsequent uploads', async () => {
+      seedBlob(cache, 'a')
+      seedBlob(cache, 'b')
+      let putCount = 0
+      const originalPut = remote.put
+      remote.put = async (hash, blob, mime) => {
+        putCount++
+        if (hash === 'a') throw new Error('boom')
+        return originalPut(hash, blob, mime)
+      }
+      const stats = await wrapped.backfillRemoteFromCache()
+      expect(putCount).toBe(2)
+      expect(stats.failed).toBe(1)
+      expect(stats.uploaded).toBe(1)
+      expect(remote.store.has('b')).toBe(true)
+    })
+
+    it('reports per-step progress via onProgress', async () => {
+      seedBlob(cache, 'h1')
+      seedBlob(cache, 'h2')
+      const calls = []
+      await wrapped.backfillRemoteFromCache({
+        onProgress: (info) => calls.push({ ...info }),
+      })
+      expect(calls).toHaveLength(2)
+      expect(calls[0].index).toBe(1)
+      expect(calls[0].total).toBe(2)
+      expect(calls[1].index).toBe(2)
+      expect(calls[1].uploaded).toBe(2)
+    })
+  })
+
   describe('forceDeleteFromRemote', () => {
     it('prefers the remote.forceDelete escape hatch when available', async () => {
       const blob = new Blob([new Uint8Array([1])])

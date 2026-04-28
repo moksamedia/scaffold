@@ -269,33 +269,70 @@
 
               <div
                 v-else-if="s3ConfigState.configured && s3ConfigState.unlocked"
-                class="q-mb-md row items-center q-gutter-sm"
+                class="q-mb-md"
               >
-                <q-icon name="cloud_done" color="positive" />
-                <span class="text-body2">
-                  Connected to <strong>{{ s3Form.bucket }}</strong> at
-                  <span class="text-caption">{{ s3Form.endpoint }}</span>
-                  ({{ s3ConfigState.mode === 'persisted' ? 'remembered' : 'session' }}<span
-                    v-if="s3ConfigState.sharedBucket"
-                  >, shared bucket</span
-                  >)
-                </span>
-                <q-space />
-                <q-btn
-                  v-if="s3ConfigState.mode === 'persisted'"
-                  flat
+                <div class="row items-center q-gutter-sm">
+                  <q-icon name="cloud_done" color="positive" />
+                  <span class="text-body2">
+                    Connected to <strong>{{ s3Form.bucket }}</strong> at
+                    <span class="text-caption">{{ s3Form.endpoint }}</span>
+                    ({{ s3ConfigState.mode === 'persisted' ? 'remembered' : 'session' }}<span
+                      v-if="s3ConfigState.sharedBucket"
+                    >, shared bucket</span
+                    >)
+                  </span>
+                  <q-space />
+                  <q-btn
+                    v-if="s3ConfigState.mode === 'persisted'"
+                    flat
+                    dense
+                    color="grey-8"
+                    label="Lock"
+                    @click="lockS3Settings"
+                  />
+                  <q-btn
+                    flat
+                    dense
+                    color="negative"
+                    label="Disconnect"
+                    @click="disconnectS3Settings"
+                  />
+                </div>
+
+                <q-banner
+                  v-if="programUnsyncedHashes.size > 0"
+                  rounded
                   dense
-                  color="grey-8"
-                  label="Lock"
-                  @click="lockS3Settings"
-                />
-                <q-btn
-                  flat
-                  dense
-                  color="negative"
-                  label="Disconnect"
-                  @click="disconnectS3Settings"
-                />
+                  class="bg-amber-1 text-amber-10 q-mt-sm"
+                >
+                  <template v-slot:avatar>
+                    <q-icon name="cloud_upload" color="warning" />
+                  </template>
+                  <div class="text-body2">
+                    <strong>{{ programUnsyncedHashes.size }}</strong> media
+                    file{{ programUnsyncedHashes.size === 1 ? '' : 's' }} on
+                    this device {{ programUnsyncedHashes.size === 1 ? 'is' : 'are' }}
+                    not yet on your S3 bucket. This usually happens when S3 is
+                    connected after media has already been uploaded locally —
+                    new uploads write through, but existing media stays put
+                    until pushed.
+                  </div>
+                  <div
+                    v-if="isBackfillingProgram && backfillProgress"
+                    class="text-caption q-mt-xs"
+                  >
+                    Pushing {{ backfillProgress.uploaded }} / {{ backfillProgress.total }}…
+                  </div>
+                  <template v-slot:action>
+                    <q-btn
+                      flat
+                      color="primary"
+                      label="Push all to S3"
+                      :loading="isBackfillingProgram"
+                      @click="backfillAllToS3"
+                    />
+                  </template>
+                </q-banner>
               </div>
 
               <q-expansion-item
@@ -430,6 +467,40 @@
                 {{ formatBytes(projectStorageUsage.imageBytes) }}, Audio:
                 {{ formatBytes(projectStorageUsage.audioBytes) }})
               </div>
+            </q-banner>
+
+            <q-banner
+              v-if="currentProject && projectUnsyncedHashes.size > 0"
+              rounded
+              class="bg-amber-1 text-amber-10 q-mb-lg"
+            >
+              <template v-slot:avatar>
+                <q-icon name="cloud_off" color="warning" />
+              </template>
+              <div class="text-subtitle2">Media not yet on S3</div>
+              <div class="text-body2">
+                <strong>{{ projectUnsyncedHashes.size }}</strong> media
+                file{{ projectUnsyncedHashes.size === 1 ? ' is' : 's are' }}
+                stored locally on this device but not yet uploaded to your
+                S3 bucket. Other devices pointing at the same bucket
+                won't be able to render
+                {{ projectUnsyncedHashes.size === 1 ? 'it' : 'them' }}.
+              </div>
+              <div
+                v-if="isBackfillingProject && backfillProgress"
+                class="text-caption q-mt-xs"
+              >
+                Pushing {{ backfillProgress.uploaded }} / {{ backfillProgress.total }}…
+              </div>
+              <template v-slot:action>
+                <q-btn
+                  flat
+                  color="primary"
+                  label="Push to S3"
+                  :loading="isBackfillingProject"
+                  @click="backfillProjectToS3"
+                />
+              </template>
             </q-banner>
 
             <div class="q-mb-lg">
@@ -793,6 +864,13 @@ const userFolderConfigured = ref(false)
 const userFolderPermissionState = ref(null)
 const isPickingFolder = ref(false)
 
+// Media sync status (only meaningful on s3+ backends).
+const projectUnsyncedHashes = ref(new Set())
+const programUnsyncedHashes = ref(new Set())
+const isBackfillingProject = ref(false)
+const isBackfillingProgram = ref(false)
+const backfillProgress = ref(null)
+
 const mediaBackendLabel = computed(() => {
   switch (mediaBackend.value) {
     case 'userfolder+idb':
@@ -991,6 +1069,7 @@ async function saveS3Settings() {
     await store.reselectMediaBackend()
     await refreshS3State()
     await refreshMediaBackendState()
+    await refreshMediaSyncStatus()
     $q.notify({
       type: 'positive',
       message: 'S3 storage connected. Media will sync to your bucket.',
@@ -1026,6 +1105,7 @@ async function unlockS3Settings() {
   await store.reselectMediaBackend()
   await refreshS3State()
   await refreshMediaBackendState()
+  await refreshMediaSyncStatus()
   $q.notify({
     type: 'positive',
     message: 'S3 vault unlocked.',
@@ -1034,11 +1114,12 @@ async function unlockS3Settings() {
   })
 }
 
-function lockS3Settings() {
+async function lockS3Settings() {
   lockS3Config()
-  refreshS3State()
-  store.reselectMediaBackend()
-  refreshMediaBackendState()
+  await refreshS3State()
+  await store.reselectMediaBackend()
+  await refreshMediaBackendState()
+  await refreshMediaSyncStatus()
 }
 
 async function disconnectS3Settings() {
@@ -1047,6 +1128,7 @@ async function disconnectS3Settings() {
     await store.reselectMediaBackend()
     await refreshS3State()
     await refreshMediaBackendState()
+    await refreshMediaSyncStatus()
     $q.notify({
       type: 'info',
       message: 'S3 storage disconnected.',
@@ -1100,6 +1182,111 @@ const projectStorageUsage = computed(() => {
  * Bytes are reported per-project (sum across distinct hashes), so the
  * same hash referenced twice in one project does not double-count.
  */
+/**
+ * Recompute "media held locally but not pushed to S3" for the current
+ * project and the whole device. No-op on local-only backends.
+ */
+async function refreshMediaSyncStatus() {
+  if (!store.mediaBackendSupportsRemoteSync()) {
+    projectUnsyncedHashes.value = new Set()
+    programUnsyncedHashes.value = new Set()
+    return
+  }
+  try {
+    const [perProject, allUnsynced] = await Promise.all([
+      currentProject.value
+        ? store.getUnsyncedMediaForProject(currentProject.value.id)
+        : Promise.resolve(new Set()),
+      store.getAllUnsyncedMedia(),
+    ])
+    projectUnsyncedHashes.value = perProject
+    programUnsyncedHashes.value = allUnsynced
+  } catch (error) {
+    console.warn('Failed to compute media sync status:', error)
+    projectUnsyncedHashes.value = new Set()
+    programUnsyncedHashes.value = new Set()
+  }
+}
+
+async function backfillProjectToS3() {
+  if (!currentProject.value) return
+  if (projectUnsyncedHashes.value.size === 0) return
+  isBackfillingProject.value = true
+  backfillProgress.value = { uploaded: 0, total: projectUnsyncedHashes.value.size }
+  try {
+    const stats = await store.backfillMediaToRemote(projectUnsyncedHashes.value, {
+      onProgress: ({ uploaded, total }) => {
+        backfillProgress.value = { uploaded, total }
+      },
+    })
+    if (stats.failed > 0) {
+      $q.notify({
+        type: 'warning',
+        message: `Pushed ${stats.uploaded} file(s); ${stats.failed} failed.`,
+        position: 'top',
+        timeout: 4000,
+      })
+    } else {
+      $q.notify({
+        type: 'positive',
+        message: `Pushed ${stats.uploaded} media file(s) to S3.`,
+        position: 'top',
+        timeout: 3000,
+      })
+    }
+    await refreshMediaSyncStatus()
+  } catch (error) {
+    $q.notify({
+      type: 'negative',
+      message: `Push to S3 failed: ${error.message}`,
+      position: 'top',
+      timeout: 4000,
+    })
+  } finally {
+    isBackfillingProject.value = false
+    backfillProgress.value = null
+  }
+}
+
+async function backfillAllToS3() {
+  if (programUnsyncedHashes.value.size === 0) return
+  isBackfillingProgram.value = true
+  backfillProgress.value = { uploaded: 0, total: programUnsyncedHashes.value.size }
+  try {
+    const stats = await store.backfillMediaToRemote(programUnsyncedHashes.value, {
+      onProgress: ({ uploaded, total }) => {
+        backfillProgress.value = { uploaded, total }
+      },
+    })
+    if (stats.failed > 0) {
+      $q.notify({
+        type: 'warning',
+        message: `Pushed ${stats.uploaded} file(s); ${stats.failed} failed.`,
+        position: 'top',
+        timeout: 4000,
+      })
+    } else {
+      $q.notify({
+        type: 'positive',
+        message: `Pushed ${stats.uploaded} media file(s) to S3.`,
+        position: 'top',
+        timeout: 3000,
+      })
+    }
+    await refreshMediaSyncStatus()
+  } catch (error) {
+    $q.notify({
+      type: 'negative',
+      message: `Push to S3 failed: ${error.message}`,
+      position: 'top',
+      timeout: 4000,
+    })
+  } finally {
+    isBackfillingProgram.value = false
+    backfillProgress.value = null
+  }
+}
+
 async function refreshProjectMediaUsage() {
   if (!currentProject.value) {
     projectMediaUsage.value = { imageBytes: 0, audioBytes: 0 }
@@ -1181,11 +1368,13 @@ onMounted(async () => {
   await refreshProjectMediaUsage()
   await refreshMediaBackendState()
   await refreshS3State()
+  await refreshMediaSyncStatus()
 })
 
 watch(currentProject, async () => {
   await loadVersions()
   await refreshProjectMediaUsage()
+  await refreshMediaSyncStatus()
 })
 
 // When the dialog opens, recompute media usage so it reflects any
@@ -1195,6 +1384,7 @@ watch(showDialog, async (visible) => {
     await refreshProjectMediaUsage()
     await refreshMediaBackendState()
     await refreshS3State()
+    await refreshMediaSyncStatus()
   }
 })
 

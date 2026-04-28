@@ -296,6 +296,114 @@ export const useOutlineStore = defineStore('outline', () => {
   }
 
   /**
+   * True when the active backend exposes a remote tier we could push
+   * to — i.e. the read-through cached adapter wrapping S3. Anything
+   * else (IDB / OPFS / user-folder) lacks `backfillRemoteFromCache`
+   * and the related helpers below all return empty / no-op results.
+   */
+  function mediaBackendSupportsRemoteSync() {
+    const adapter = getMediaAdapter()
+    return Boolean(
+      adapter &&
+        typeof adapter.listRemoteHashes === 'function' &&
+        typeof adapter.listCachedHashes === 'function' &&
+        typeof adapter.backfillRemoteFromCache === 'function',
+    )
+  }
+
+  /**
+   * Hashes referenced by `projectId` that are present in the local
+   * cache but NOT yet on the remote tier — i.e. media that exists
+   * here but other devices on the same bucket can't see yet. Returns
+   * an empty Set on local-only backends.
+   *
+   * @param {string} projectId
+   * @returns {Promise<Set<string>>}
+   */
+  async function getUnsyncedMediaForProject(projectId) {
+    if (!mediaBackendSupportsRemoteSync()) return new Set()
+    const target = projects.value.find((p) => p.id === projectId)
+    if (!target) return new Set()
+    const refs = collectProjectRefHashes([target])
+    if (refs.size === 0) return new Set()
+
+    const adapter = getMediaAdapter()
+    let remoteHashes
+    let cacheHashes
+    try {
+      ;[remoteHashes, cacheHashes] = await Promise.all([
+        adapter.listRemoteHashes(),
+        adapter.listCachedHashes(),
+      ])
+    } catch (error) {
+      console.warn('Failed to list media hashes for sync status:', error)
+      return new Set()
+    }
+    const remoteSet = new Set(remoteHashes)
+    const cacheSet = new Set(cacheHashes)
+
+    const out = new Set()
+    for (const hash of refs) {
+      // We can only fix unsynced refs that we still hold locally.
+      // Refs that aren't in cache either are already lost (will
+      // render as "media unavailable" everywhere) or are in remote
+      // already (so not a sync problem).
+      if (!cacheSet.has(hash)) continue
+      if (remoteSet.has(hash)) continue
+      out.add(hash)
+    }
+    return out
+  }
+
+  /**
+   * Hashes anywhere in the local cache that aren't on the remote.
+   * Used by the program-wide "Push to S3" control. Returns an empty
+   * Set on local-only backends.
+   *
+   * @returns {Promise<Set<string>>}
+   */
+  async function getAllUnsyncedMedia() {
+    if (!mediaBackendSupportsRemoteSync()) return new Set()
+    const adapter = getMediaAdapter()
+    try {
+      const [cacheHashes, remoteHashes] = await Promise.all([
+        adapter.listCachedHashes(),
+        adapter.listRemoteHashes(),
+      ])
+      const remoteSet = new Set(remoteHashes)
+      const out = new Set()
+      for (const hash of cacheHashes) {
+        if (!remoteSet.has(hash)) out.add(hash)
+      }
+      return out
+    } catch (error) {
+      console.warn('Failed to compute unsynced media set:', error)
+      return new Set()
+    }
+  }
+
+  /**
+   * Push cache-only blobs to the remote. Pass an explicit list of
+   * `hashes` to bound the operation (e.g. only this project), or
+   * leave undefined to push every cache-only hash.
+   *
+   * @param {Iterable<string>} [hashes]
+   * @param {{ onProgress?: Function }} [options]
+   * @returns {Promise<{ supported: boolean, checked: number, uploaded: number, skipped: number, failed: number }>}
+   */
+  async function backfillMediaToRemote(hashes, options = {}) {
+    if (!mediaBackendSupportsRemoteSync()) {
+      return { supported: false, checked: 0, uploaded: 0, skipped: 0, failed: 0 }
+    }
+    const adapter = getMediaAdapter()
+    const stats = await adapter.backfillRemoteFromCache({
+      hashes: hashes ? Array.from(hashes) : undefined,
+      onProgress: options.onProgress,
+    })
+    return { supported: true, ...stats }
+  }
+
+  /**
    * Delete a project locally. When `options.purgeRemoteMedia` is true,
    * any media hashes referenced uniquely by this project (i.e. not
    * held by another project or version snapshot) are force-evicted
@@ -2020,6 +2128,10 @@ export const useOutlineStore = defineStore('outline', () => {
     deleteProject,
     findOrphanedMediaForProjectRemoval,
     purgeRemoteMediaHashes,
+    mediaBackendSupportsRemoteSync,
+    getUnsyncedMediaForProject,
+    getAllUnsyncedMedia,
+    backfillMediaToRemote,
     renameProject,
     selectProject,
     projectLockBlockedProjectId,
