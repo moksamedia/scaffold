@@ -32,9 +32,33 @@ describe('logger', () => {
     expect(captured[0]).toMatchObject({
       level: 'info',
       event: 'app.init.success',
+      description: 'Application initialization completed successfully',
+      operatorHint: 'operation-succeeded',
       contextId: 'default',
     })
     expect(typeof captured[0].ts).toBe('string')
+  })
+
+  it('uses curated callsite descriptions for known events', () => {
+    logger.error('persist.save.failed', { projectId: 'p1' })
+    expect(captured[0].description).toBe(
+      'Autosave/persistence failed while writing projects/settings snapshot to storage adapter',
+    )
+  })
+
+  it('uses curated operator hints for known events', () => {
+    logger.error('persist.save.failed', { projectId: 'p1' })
+    expect(captured[0].operatorHint).toBe('storage-write-failed')
+  })
+
+  it('allows explicit description override from payload', () => {
+    logger.info('media.gc.completed', { description: 'GC sweep done' })
+    expect(captured[0].description).toBe('GC sweep done')
+  })
+
+  it('allows explicit operatorHint override from payload', () => {
+    logger.info('media.gc.completed', { operatorHint: 'maintenance-cycle' })
+    expect(captured[0].operatorHint).toBe('maintenance-cycle')
   })
 
   it('gates by level (info hides debug)', () => {
