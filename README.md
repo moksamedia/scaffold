@@ -200,6 +200,12 @@ A powerful hierarchical outline and note-taking application built with Vue 3 and
 
 - **IndexedDB Persistence**: Project data, version meta entries, and uploaded media all live in a single `scaffoldDb` IndexedDB database (schema v2: `projects`, `meta`, `media` object stores). The localStorage adapter remains available as a test backend.
 - **Content-Addressable Media Store**: A pluggable `MediaStorageAdapter` keys uploads by SHA-256 hex of their bytes; identical media collapses to a single record across uploads, projects, devices, and JSON imports. Long-note HTML, version snapshots, and JSON exports reference media by hash via the `scaffold-media://<hash>` URL scheme — bytes are resolved to blob URLs only at render/edit time.
+- **Pluggable Storage Backends**: At app start, capability-based selection picks the best available media backend in priority order:
+  1. **S3-compatible bucket** (Phase 4, opt-in) layered on top of OPFS or IndexedDB as a local read-through cache. Works with AWS S3, Cloudflare R2, MinIO, Backblaze B2, Wasabi, etc. Configure CORS on the bucket to allow GET/HEAD/PUT/DELETE from this origin. Credentials may be kept session-only or persisted with AES-GCM (PBKDF2-derived key).
+  2. **User-picked folder** (Phase 3, opt-in, Chromium-only) via the File System Access API; the directory handle is persisted in IndexedDB and re-prompted for permission on the next user gesture.
+  3. **Origin Private File System** (Phase 2) layered with IndexedDB as a fallback for legacy content.
+  4. **IndexedDB** (Phase 1) as the universal default.
+- **Save Dialog**: JSON exports use `window.showSaveFilePicker` when available so users get a true file save dialog; falls back to the classic anchor-click download otherwise.
 - **Automatic Migration**: On every load, any pre-existing inline `data:image/...` or `data:audio/...` URIs in long-note HTML (across both live projects and persisted version snapshots) are ingested into the media store and replaced with references. The migration is idempotent because IDs are content hashes.
 - **Mark-and-Sweep GC**: Unreferenced media is reclaimed in the background. The live set is computed from persisted projects + version meta entries, and a 24h grace window protects newly uploaded blobs that haven't yet been saved into a long note. GC also runs on project/long-note delete events.
 - **Version History**: Per-project version tracking with duplicate detection. After the migration, version snapshots are reference-only and stay tiny regardless of how much media a project contains.
@@ -231,14 +237,21 @@ src/
 │   │   ├── docx.js          # Word document export
 │   │   └── json.js          # JSON export/import (carries optional `media` payload)
 │   ├── media/               # Content-addressable media store
-│   │   ├── adapter.js       # MediaStorageAdapter interface
+│   │   ├── adapter.js       # MediaStorageAdapter interface (IndexedDB-backed)
 │   │   ├── hash.js          # SHA-256 helpers
 │   │   ├── references.js    # `scaffold-media://<hash>` HTML scan/rewrite
 │   │   ├── ingest.js        # data URI / Blob → stored hash
 │   │   ├── resolver.js      # hash → cached blob URL
 │   │   ├── gc.js            # mark-and-sweep over projects + versions
 │   │   ├── migration.js     # idempotent data: → reference migration
-│   │   └── index.js         # singleton accessors (adapter, resolver)
+│   │   ├── opfs-adapter.js  # Phase 2: Origin Private File System adapter
+│   │   ├── userfolder-adapter.js  # Phase 3: showDirectoryPicker-backed adapter
+│   │   ├── layered-adapter.js     # multi-tier adapter (writes primary, reads fall through)
+│   │   ├── cached-adapter.js      # read-through cache wrapper for remote backends
+│   │   ├── sigv4.js               # AWS Signature V4 signer (WebCrypto)
+│   │   ├── s3-adapter.js          # Phase 4: S3-compatible adapter (HEAD/GET/PUT/DELETE/LIST)
+│   │   ├── s3-config.js           # S3 credential persistence (session or AES-GCM/PBKDF2)
+│   │   └── index.js               # singleton accessors + capability-based selection
 │   └── storage/             # Storage abstraction
 │       ├── storage-adapter.js  # IndexedDB v2 + localStorage backends, including media methods
 │       ├── index.js         # Singleton accessor for the storage adapter

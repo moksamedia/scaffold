@@ -16,6 +16,9 @@ import {
   isUserFolderApiAvailable,
   loadUserFolderHandle,
 } from './userfolder-adapter.js'
+import { createS3MediaAdapter } from './s3-adapter.js'
+import { createCachingMediaAdapter } from './cached-adapter.js'
+import { getS3Credentials, loadS3Config } from './s3-config.js'
 
 let _adapter = null
 
@@ -39,16 +42,21 @@ export function resetMediaAdapter() {
 
 /**
  * Capability-based adapter selection. Selection priority:
- *   1. User-picked folder (Phase 3 opt-in, Chromium-only): if a folder
+ *   1. S3-compatible remote (Phase 4 opt-in): if a config is saved and
+ *      credentials are unlocked in memory, use S3 as the durable
+ *      backend with a local cache (OPFS or IDB) in front for speed
+ *      and offline reads.
+ *   2. User-picked folder (Phase 3 opt-in, Chromium-only): if a folder
  *      handle was previously saved and still has read/write permission,
  *      use it as the primary layer with IDB underneath as a read-only
  *      fallback for any media that hasn't been moved over yet.
- *   2. OPFS (Phase 2): drop-in upgrade over IDB; layered with IDB.
- *   3. IndexedDB (Phase 1): default for browsers without OPFS.
+ *   3. OPFS (Phase 2): drop-in upgrade over IDB; layered with IDB.
+ *   4. IndexedDB (Phase 1): default for browsers without OPFS.
  *
  * The probe is non-interactive: a saved user folder whose permission
- * has lapsed is detected here as "not granted" and we fall through to
- * OPFS / IDB. The Settings UI re-prompts on the next user gesture.
+ * has lapsed (or an S3 config without unlocked credentials) is detected
+ * here as "unavailable" and we fall through to lower tiers. The
+ * Settings UI re-prompts on the next user gesture.
  *
  * Idempotent: calling twice has the same effect as calling once. Tests
  * can stub `setMediaAdapter` ahead of time to bypass this entirely.
@@ -61,8 +69,12 @@ export function resetMediaAdapter() {
  *   loadUserFolderHandle?: () => Promise<FileSystemDirectoryHandle | null>,
  *   ensureUserFolderPermission?: (handle: FileSystemDirectoryHandle, options?: { interactive?: boolean }) => Promise<string|null>,
  *   createUserFolder?: (handle: FileSystemDirectoryHandle) => import('./adapter.js').MediaStorageAdapter,
+ *   loadS3Config?: () => Promise<{ publicConfig: object } | null>,
+ *   getS3Credentials?: () => object | null,
+ *   createS3?: (config: object) => import('./adapter.js').MediaStorageAdapter,
+ *   createCachingS3?: (params: { remote: object, cache: object }) => import('./adapter.js').MediaStorageAdapter,
  * }} [overrides]
- * @returns {Promise<{ backend: 'userfolder+idb' | 'opfs+idb' | 'idb', error?: Error | null }>}
+ * @returns {Promise<{ backend: 's3+opfs' | 's3+idb' | 'userfolder+idb' | 'opfs+idb' | 'idb', error?: Error | null }>}
  */
 export async function selectMediaAdapter(overrides = {}) {
   const opfsAvailable = overrides.isOpfsAvailable || isOpfsAvailable
@@ -75,8 +87,44 @@ export async function selectMediaAdapter(overrides = {}) {
     ((handle, options) => ensureUserFolderPermission(handle, options))
   const createUserFolder =
     overrides.createUserFolder || ((handle) => createUserFolderMediaAdapter(handle))
+  const loadS3 = overrides.loadS3Config || loadS3Config
+  const readS3Credentials = overrides.getS3Credentials || getS3Credentials
+  const buildS3 = overrides.createS3 || ((config) => createS3MediaAdapter(config))
+  const buildCachingS3 =
+    overrides.createCachingS3 ||
+    ((params) => createCachingMediaAdapter(params))
 
-  // Tier 1: user-picked folder (opt-in, persisted handle, granted perm).
+  // Tier 1: S3-compatible remote with local read-through cache.
+  try {
+    const stored = await loadS3()
+    const credentials = readS3Credentials()
+    if (stored?.publicConfig && credentials?.secretAccessKey) {
+      const remote = buildS3({ ...stored.publicConfig, ...credentials })
+      let cache
+      let backend
+      if (opfsAvailable()) {
+        try {
+          const opfsAdapter = createOpfs()
+          await opfsAdapter.listHashes()
+          cache = opfsAdapter
+          backend = 's3+opfs'
+        } catch {
+          cache = createIdb()
+          backend = 's3+idb'
+        }
+      } else {
+        cache = createIdb()
+        backend = 's3+idb'
+      }
+      setMediaAdapter(buildCachingS3({ remote, cache }))
+      return { backend, error: null }
+    }
+  } catch (error) {
+    // Fall through to lower tiers when the S3 config is unreadable.
+    console.warn('S3 media adapter unavailable, falling back:', error)
+  }
+
+  // Tier 2: user-picked folder (opt-in, persisted handle, granted perm).
   if (userFolderAvailable()) {
     try {
       const handle = await loadHandle()
@@ -96,7 +144,7 @@ export async function selectMediaAdapter(overrides = {}) {
     }
   }
 
-  // Tier 2: OPFS layered over IDB.
+  // Tier 3: OPFS layered over IDB.
   if (opfsAvailable()) {
     try {
       const opfsAdapter = createOpfs()
@@ -112,7 +160,7 @@ export async function selectMediaAdapter(overrides = {}) {
     }
   }
 
-  // Tier 3: IDB only.
+  // Tier 4: IDB only.
   setMediaAdapter(createIdb())
   return { backend: 'idb', error: null }
 }

@@ -65,14 +65,21 @@ Scaffold is a Quasar Vue 3 application for creating and managing hierarchical ou
 - `migration.js` - State machine for localStorage → IndexedDB migration (not used at runtime; retained for reference)
 
 ### `/src/utils/media/`
-- `adapter.js` - `MediaStorageAdapter` interface; `createMediaStorageAdapter(getStorageAdapter)` wraps the active storage adapter so the same code runs against IndexedDB now and against OPFS / user-folder / S3 backends in later phases.
-- `index.js` - Singleton accessors `getMediaAdapter()` / `setMediaAdapter()` and `getMediaResolver()` / `setMediaResolver()`, plus `resetMediaAdapter()` / `resetMediaResolver()` used by `tests/setup.js`.
+- `adapter.js` - `MediaStorageAdapter` interface; `createMediaStorageAdapter(getStorageAdapter)` wraps the active storage adapter so the same code runs against IndexedDB and against OPFS / user-folder / S3 backends.
+- `index.js` - Singleton accessors `getMediaAdapter()` / `setMediaAdapter()` and `getMediaResolver()` / `setMediaResolver()`, plus `resetMediaAdapter()` / `resetMediaResolver()` used by `tests/setup.js`. `selectMediaAdapter()` performs capability-based selection at boot in priority order: S3+cache → user-folder → OPFS → IDB.
 - `hash.js` - SHA-256 hex helpers (`sha256Hex`, `sha256HexFromString`, `isValidSha256Hex`).
 - `references.js` - The `scaffold-media://<hash>` URL scheme: `buildMediaRef`, `parseMediaRef`, `extractRefHashesFromHtml`, `collectProjectRefHashes`, plus HTML rewriters `rewriteDataUrisToRefs`, `rewriteRefsWith`, `normalizeHtmlToRefs`, and `transformLongNoteHtmlInPlace`. The protocol is intentionally not a real URL; the renderer/editor never lets it reach the network.
 - `ingest.js` - `ingestBlob`, `ingestDataUrl`, `dataUrlToBlob`, `blobToBase64`, `base64ToBlob`. Idempotent: same bytes ingested twice keeps the original `createdAt`.
 - `resolver.js` - `createMediaResolver(getAdapter)` caches one `URL.createObjectURL(blob)` per hash for the page lifetime, with `toObjectUrl`, `syncUrl`, `ensureMany`, and `dispose`.
 - `gc.js` - `runMediaGc({ now, graceMs })` performs mark-and-sweep over the live set built from persisted projects + version meta entries. The default 24h grace window protects newly uploaded blobs that haven't yet been saved into a long note. `collectLiveMediaHashes` is exported for tests.
 - `migration.js` - One-time, idempotent migration that ingests inline `data:image/...` and `data:audio/...` URIs from both projects and version snapshots and rewrites them to references. Triggered automatically from `outline-store.js`'s `initPromise`.
+- `opfs-adapter.js` - Phase 2: `MediaStorageAdapter` implementation backed by `navigator.storage.getDirectory()` (the Origin Private File System). Mirrors the IDB layout with `.meta.json` sidecars; capability-detected at boot via `isOpfsAvailable()`.
+- `userfolder-adapter.js` - Phase 3: `MediaStorageAdapter` backed by a folder picked via `window.showDirectoryPicker()`. Persists the directory handle in a private IDB database (`scaffoldHandles`) so the same folder is used across reloads, and re-prompts for permission on the next user gesture.
+- `layered-adapter.js` - Composes multiple adapters (writes to the primary, reads fall through to secondaries with lazy promotion). Used to expose existing IDB content seamlessly under newer backends.
+- `cached-adapter.js` - Read-through cache wrapper: writes go to the durable backend first (S3) then mirror into a local cache (OPFS or IDB); reads check the cache first and promote remote hits.
+- `sigv4.js` - Self-contained AWS Signature V4 implementation built on Web Crypto. Used by the S3 adapter; verified against AWS' canonical "get-vanilla" SigV4 test vector.
+- `s3-adapter.js` - Phase 4: `MediaStorageAdapter` against any S3-compatible endpoint (AWS, Cloudflare R2, MinIO, Backblaze B2, Wasabi). Performs HEAD/GET/PUT/DELETE/ListObjectsV2 with pagination; idempotent PUTs because keys are content hashes (`<prefix>/<hash>`).
+- `s3-config.js` - Persistence helpers for S3 credentials. Two modes: `'session'` (secret kept only in memory) and `'persisted'` (secret encrypted with AES-GCM via a PBKDF2-derived key from the user's passphrase). Exposes `saveS3Config`, `loadS3Config`, `unlockS3Config`, `lockS3Config`, `clearS3Config`, `getS3Credentials`, `setS3SessionCredentials`.
 
 ### `/tests/`
 - Test runner: Vitest with happy-dom environment
@@ -93,6 +100,14 @@ Scaffold is a Quasar Vue 3 application for creating and managing hierarchical ou
 - `tests/media-resolver.test.js` - Cached blob URL resolution and disposal
 - `tests/media-gc.test.js` - Mark-and-sweep over projects + version meta entries with grace window
 - `tests/media-migration.test.js` - One-time `data:` URI → reference migration on projects and version snapshots
+- `tests/media-opfs-adapter.test.js` - OPFS adapter contract using an in-memory `FileSystemDirectoryHandle` stub
+- `tests/media-layered-adapter.test.js` - Multi-tier adapter behavior, lazy promotion, unified stats
+- `tests/media-select-adapter.test.js` - Capability-based selection priority across S3, user-folder, OPFS, and IDB tiers
+- `tests/media-sigv4.test.js` - SigV4 signing verified against AWS' "get-vanilla" canonical test vector
+- `tests/media-s3-adapter.test.js` - S3 adapter HEAD/GET/PUT/DELETE/LIST against a mock fetch, including ListObjectsV2 pagination
+- `tests/media-cached-adapter.test.js` - Read-through cache semantics: cache hits, lazy promotion, write-through to remote
+- `tests/media-s3-config.test.js` - S3 credential persistence: session-mode in-memory only, persisted-mode AES-GCM/PBKDF2 round-trip, lock/clear semantics
+- `tests/fixtures/in-memory-opfs.js` - In-memory `FileSystemDirectoryHandle` stub for OPFS-style tests
 
 ### Key Technical Patterns
 - Reactive Vue 3 Composition API throughout
@@ -168,6 +183,14 @@ Scaffold is a Quasar Vue 3 application for creating and managing hierarchical ou
   - `outline-store.js` runs the data-URI migration on `initPromise`, exposes `mediaUsage` (count + bytes), and triggers `runMediaGc` on project/long-note delete and on a 10-minute idle timer (`startMediaGcTimer`).
   - `SettingsDialog.vue` Project storage banner now sums per-project image/audio bytes by reading the media adapter for each unique referenced hash, instead of regex-scanning HTML for inline `data:` URIs.
   - `json.js` adds the optional top-level `media` map on export (via `attachMediaPayload`) and hydrates it on import (via `ingestMediaPayload`); long-note HTML, version snapshots, and exported project payloads stay reference-only.
+- Pluggable media storage backends (Phases 2–4):
+  - Capability-based selection at boot via `selectMediaAdapter()`. Priority (highest to lowest): S3-with-cache → user-picked folder → OPFS → IndexedDB.
+  - Phase 2 — OPFS adapter (`opfs-adapter.js`) layered with IDB through `layered-adapter.js`; reads fall through to IDB and lazily promote into OPFS on first hit.
+  - Phase 3 — User-picked folder adapter (`userfolder-adapter.js`) using `window.showDirectoryPicker()`. The directory handle is persisted in a private `scaffoldHandles` IndexedDB; permission is re-requested on the next user gesture. Settings dialog (Program tab) exposes "Choose folder…" / "Disconnect" controls and a live backend label.
+  - Phase 3 — JSON exports use `window.showSaveFilePicker` when supported (true Save dialog), with the anchor-click download as a fallback.
+  - Phase 4 — S3-compatible adapter (`s3-adapter.js`) with self-contained SigV4 signing (`sigv4.js`), CORS-friendly HEAD/GET/PUT/DELETE, paginated ListObjectsV2 for `listHashes` / `getStats`. Wrapped by `cached-adapter.js` so writes go to S3 first (durability) and reads check the local cache first (speed + offline-tolerant).
+  - Phase 4 — Credential persistence (`s3-config.js`): `'session'` keeps the secret in memory only; `'persisted'` encrypts the secret with AES-GCM using a PBKDF2-derived key from a user passphrase. The Settings dialog gates the locked vault behind a passphrase prompt before the adapter activates.
+  - Store wiring: `outline-store.js` exposes `mediaBackend` (active backend label) and `reselectMediaBackend()` so the Settings UI can hot-swap backends after the user changes config.
 - Storage safety guardrails:
   - High-storage-usage warning based on adapter usage/quota stats
   - User-facing save error when persistence fails (including quota overflow scenarios)

@@ -230,6 +230,170 @@
                   />
                 </div>
               </div>
+
+              <q-separator class="q-my-md" />
+
+              <div class="text-subtitle2 q-mb-sm">S3-compatible storage (optional)</div>
+              <div class="text-caption text-grey-8 q-mb-sm">
+                Sync media to your own S3 bucket (AWS, Cloudflare R2, MinIO,
+                Backblaze B2, etc.). When connected, uploads go to the bucket
+                first and the local cache (OPFS or IndexedDB) is used for fast
+                reads. Configure CORS on the bucket to allow GET, HEAD, PUT,
+                and DELETE from this site.
+              </div>
+
+              <div v-if="s3ConfigState.configured && !s3ConfigState.unlocked" class="q-mb-md">
+                <q-banner dense class="bg-amber-1 text-amber-10 q-mb-sm">
+                  S3 is configured but locked. Enter your passphrase to use it
+                  this session.
+                </q-banner>
+                <div class="row q-gutter-sm items-end">
+                  <q-input
+                    v-model="s3UnlockPassphrase"
+                    type="password"
+                    label="Passphrase"
+                    outlined
+                    dense
+                    style="max-width: 320px"
+                    @keyup.enter="unlockS3Settings"
+                  />
+                  <q-btn color="primary" label="Unlock" @click="unlockS3Settings" />
+                  <q-btn
+                    flat
+                    color="negative"
+                    label="Disconnect"
+                    @click="disconnectS3Settings"
+                  />
+                </div>
+              </div>
+
+              <div
+                v-else-if="s3ConfigState.configured && s3ConfigState.unlocked"
+                class="q-mb-md row items-center q-gutter-sm"
+              >
+                <q-icon name="cloud_done" color="positive" />
+                <span class="text-body2">
+                  Connected to <strong>{{ s3Form.bucket }}</strong> at
+                  <span class="text-caption">{{ s3Form.endpoint }}</span>
+                  ({{ s3ConfigState.mode === 'persisted' ? 'remembered' : 'session' }})
+                </span>
+                <q-space />
+                <q-btn
+                  v-if="s3ConfigState.mode === 'persisted'"
+                  flat
+                  dense
+                  color="grey-8"
+                  label="Lock"
+                  @click="lockS3Settings"
+                />
+                <q-btn
+                  flat
+                  dense
+                  color="negative"
+                  label="Disconnect"
+                  @click="disconnectS3Settings"
+                />
+              </div>
+
+              <q-expansion-item
+                v-else
+                label="Configure S3-compatible storage"
+                icon="cloud_upload"
+                dense
+              >
+                <q-card flat>
+                  <q-card-section class="q-pa-sm">
+                    <div class="row q-col-gutter-sm">
+                      <q-input
+                        v-model="s3Form.endpoint"
+                        label="Endpoint"
+                        placeholder="https://s3.us-east-1.amazonaws.com"
+                        outlined
+                        dense
+                        class="col-12 col-md-6"
+                      />
+                      <q-input
+                        v-model="s3Form.region"
+                        label="Region"
+                        outlined
+                        dense
+                        class="col-6 col-md-3"
+                      />
+                      <q-input
+                        v-model="s3Form.bucket"
+                        label="Bucket"
+                        outlined
+                        dense
+                        class="col-6 col-md-3"
+                      />
+                      <q-input
+                        v-model="s3Form.prefix"
+                        label="Object key prefix"
+                        outlined
+                        dense
+                        class="col-12 col-md-6"
+                      />
+                      <div class="col-12 col-md-6 row items-center">
+                        <q-checkbox
+                          v-model="s3Form.pathStyle"
+                          label="Use path-style URLs (recommended for non-AWS)"
+                        />
+                      </div>
+                      <q-input
+                        v-model="s3Form.accessKeyId"
+                        label="Access key ID"
+                        outlined
+                        dense
+                        class="col-12 col-md-6"
+                      />
+                      <q-input
+                        v-model="s3Form.secretAccessKey"
+                        type="password"
+                        label="Secret access key"
+                        outlined
+                        dense
+                        class="col-12 col-md-6"
+                      />
+                      <div class="col-12">
+                        <q-option-group
+                          v-model="s3Form.mode"
+                          :options="s3Modes"
+                          type="radio"
+                          inline
+                        />
+                      </div>
+                      <q-input
+                        v-if="s3Form.mode === 'persisted'"
+                        v-model="s3Form.passphrase"
+                        type="password"
+                        label="Encryption passphrase"
+                        outlined
+                        dense
+                        class="col-12 col-md-6"
+                      />
+                      <q-input
+                        v-if="s3Form.mode === 'persisted'"
+                        v-model="s3Form.passphraseConfirm"
+                        type="password"
+                        label="Confirm passphrase"
+                        outlined
+                        dense
+                        class="col-12 col-md-6"
+                      />
+                    </div>
+                    <div class="row q-mt-sm">
+                      <q-space />
+                      <q-btn
+                        color="primary"
+                        label="Connect"
+                        :loading="isSavingS3"
+                        :disable="!s3FormValid()"
+                        @click="saveS3Settings"
+                      />
+                    </div>
+                  </q-card-section>
+                </q-card>
+              </q-expansion-item>
             </div>
           </q-tab-panel>
 
@@ -518,6 +682,15 @@ import {
   ensureUserFolderPermission,
 } from 'src/utils/media/userfolder-adapter.js'
 import { isOpfsAvailable } from 'src/utils/media/opfs-adapter.js'
+import {
+  saveS3Config,
+  loadS3Config,
+  clearS3Config,
+  unlockS3Config,
+  lockS3Config,
+  setS3SessionCredentials,
+  getS3Credentials,
+} from 'src/utils/media/s3-config.js'
 
 const props = defineProps({
   modelValue: {
@@ -687,6 +860,189 @@ async function disconnectMediaFolder() {
   }
 }
 
+// --- S3-compatible storage state ---------------------------------------------
+
+const s3Form = ref({
+  endpoint: '',
+  region: 'us-east-1',
+  bucket: '',
+  prefix: 'scaffold/media',
+  pathStyle: true,
+  accessKeyId: '',
+  secretAccessKey: '',
+  passphrase: '',
+  passphraseConfirm: '',
+  mode: 'session',
+})
+const s3UnlockPassphrase = ref('')
+const s3ConfigState = ref({
+  configured: false,
+  mode: null,
+  unlocked: false,
+})
+const isSavingS3 = ref(false)
+
+const s3Modes = [
+  {
+    label: 'Session only — paste secret each session (recommended for shared devices)',
+    value: 'session',
+  },
+  {
+    label: 'Remember on this device — encrypted with a passphrase you set',
+    value: 'persisted',
+  },
+]
+
+async function refreshS3State() {
+  try {
+    const stored = await loadS3Config()
+    if (!stored?.publicConfig) {
+      s3ConfigState.value = { configured: false, mode: null, unlocked: false }
+      return
+    }
+    const credentials = getS3Credentials()
+    s3ConfigState.value = {
+      configured: true,
+      mode: stored.publicConfig.mode,
+      unlocked: !!credentials?.secretAccessKey,
+    }
+    s3Form.value = {
+      ...s3Form.value,
+      endpoint: stored.publicConfig.endpoint || '',
+      region: stored.publicConfig.region || 'us-east-1',
+      bucket: stored.publicConfig.bucket || '',
+      prefix: stored.publicConfig.prefix || 'scaffold/media',
+      pathStyle: stored.publicConfig.pathStyle !== false,
+      accessKeyId: stored.publicConfig.accessKeyId || '',
+      mode: stored.publicConfig.mode || 'session',
+      secretAccessKey: '',
+      passphrase: '',
+      passphraseConfirm: '',
+    }
+  } catch (error) {
+    console.warn('Failed to read S3 config:', error)
+  }
+}
+
+function s3FormValid() {
+  if (!s3Form.value.endpoint || !s3Form.value.region || !s3Form.value.bucket) return false
+  if (!s3Form.value.accessKeyId || !s3Form.value.secretAccessKey) return false
+  if (s3Form.value.mode === 'persisted') {
+    if (!s3Form.value.passphrase || s3Form.value.passphrase !== s3Form.value.passphraseConfirm) {
+      return false
+    }
+  }
+  return true
+}
+
+async function saveS3Settings() {
+  if (!s3FormValid()) {
+    $q.notify({
+      type: 'warning',
+      message:
+        s3Form.value.mode === 'persisted' && s3Form.value.passphrase !== s3Form.value.passphraseConfirm
+          ? 'Passphrases do not match.'
+          : 'Please fill out every field before connecting.',
+      position: 'top',
+      timeout: 3000,
+    })
+    return
+  }
+  isSavingS3.value = true
+  try {
+    const publicConfig = {
+      endpoint: s3Form.value.endpoint.trim(),
+      region: s3Form.value.region.trim(),
+      bucket: s3Form.value.bucket.trim(),
+      prefix: s3Form.value.prefix.trim() || 'scaffold/media',
+      pathStyle: s3Form.value.pathStyle,
+      accessKeyId: s3Form.value.accessKeyId.trim(),
+      mode: s3Form.value.mode,
+    }
+    if (s3Form.value.mode === 'persisted') {
+      await saveS3Config(publicConfig, {
+        secretAccessKey: s3Form.value.secretAccessKey,
+        passphrase: s3Form.value.passphrase,
+      })
+    } else {
+      await setS3SessionCredentials(publicConfig, s3Form.value.secretAccessKey)
+    }
+    await store.reselectMediaBackend()
+    await refreshS3State()
+    await refreshMediaBackendState()
+    $q.notify({
+      type: 'positive',
+      message: 'S3 storage connected. Media will sync to your bucket.',
+      position: 'top',
+      timeout: 3000,
+    })
+  } catch (error) {
+    console.warn('Failed to save S3 config:', error)
+    $q.notify({
+      type: 'negative',
+      message: error?.message || 'Could not connect to S3.',
+      position: 'top',
+      timeout: 4000,
+    })
+  } finally {
+    isSavingS3.value = false
+  }
+}
+
+async function unlockS3Settings() {
+  if (!s3UnlockPassphrase.value) return
+  const credentials = await unlockS3Config(s3UnlockPassphrase.value)
+  if (!credentials) {
+    $q.notify({
+      type: 'negative',
+      message: 'Wrong passphrase.',
+      position: 'top',
+      timeout: 3000,
+    })
+    return
+  }
+  s3UnlockPassphrase.value = ''
+  await store.reselectMediaBackend()
+  await refreshS3State()
+  await refreshMediaBackendState()
+  $q.notify({
+    type: 'positive',
+    message: 'S3 vault unlocked.',
+    position: 'top',
+    timeout: 2000,
+  })
+}
+
+function lockS3Settings() {
+  lockS3Config()
+  refreshS3State()
+  store.reselectMediaBackend()
+  refreshMediaBackendState()
+}
+
+async function disconnectS3Settings() {
+  try {
+    await clearS3Config()
+    await store.reselectMediaBackend()
+    await refreshS3State()
+    await refreshMediaBackendState()
+    $q.notify({
+      type: 'info',
+      message: 'S3 storage disconnected.',
+      position: 'top',
+      timeout: 3000,
+    })
+  } catch (error) {
+    console.warn('Failed to disconnect S3:', error)
+    $q.notify({
+      type: 'negative',
+      message: 'Could not disconnect S3.',
+      position: 'top',
+      timeout: 4000,
+    })
+  }
+}
+
 const projectStorageUsage = computed(() => {
   if (!currentProject.value) {
     return {
@@ -803,6 +1159,7 @@ onMounted(async () => {
   await loadVersions()
   await refreshProjectMediaUsage()
   await refreshMediaBackendState()
+  await refreshS3State()
 })
 
 watch(currentProject, async () => {
@@ -816,6 +1173,7 @@ watch(showDialog, async (visible) => {
   if (visible) {
     await refreshProjectMediaUsage()
     await refreshMediaBackendState()
+    await refreshS3State()
   }
 })
 

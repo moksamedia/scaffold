@@ -132,4 +132,84 @@ describe('selectMediaAdapter', () => {
     })
     expect(result.backend).toBe('opfs+idb')
   })
+
+  it('prefers S3-with-OPFS-cache when S3 config is unlocked', async () => {
+    resetMediaAdapter()
+    const s3Remote = makeFakeFsAdapter()
+    const opfs = makeFakeFsAdapter()
+    const cachingCalls = []
+    const result = await selectMediaAdapter({
+      isOpfsAvailable: () => true,
+      isUserFolderAvailable: () => false,
+      loadS3Config: async () => ({
+        publicConfig: {
+          endpoint: 'https://s3.example.com',
+          region: 'us-east-1',
+          bucket: 'b',
+          prefix: 'p',
+          accessKeyId: 'AK',
+          mode: 'session',
+        },
+      }),
+      getS3Credentials: () => ({ secretAccessKey: 'sk' }),
+      createS3: () => s3Remote,
+      createOpfs: () => opfs,
+      createCachingS3: ({ remote, cache }) => {
+        cachingCalls.push({ remote, cache })
+        return remote
+      },
+    })
+    expect(result.backend).toBe('s3+opfs')
+    expect(cachingCalls).toHaveLength(1)
+    expect(cachingCalls[0].remote).toBe(s3Remote)
+    expect(cachingCalls[0].cache).toBe(opfs)
+  })
+
+  it('uses S3+IDB when OPFS is unavailable', async () => {
+    resetMediaAdapter()
+    const s3Remote = makeFakeFsAdapter()
+    const result = await selectMediaAdapter({
+      isOpfsAvailable: () => false,
+      isUserFolderAvailable: () => false,
+      loadS3Config: async () => ({
+        publicConfig: {
+          endpoint: 'https://s3.example.com',
+          region: 'us-east-1',
+          bucket: 'b',
+          prefix: 'p',
+          accessKeyId: 'AK',
+          mode: 'session',
+        },
+      }),
+      getS3Credentials: () => ({ secretAccessKey: 'sk' }),
+      createS3: () => s3Remote,
+      createCachingS3: ({ remote }) => remote,
+    })
+    expect(result.backend).toBe('s3+idb')
+  })
+
+  it('falls through to local tiers when S3 credentials are not unlocked', async () => {
+    resetMediaAdapter()
+    const opfs = makeFakeFsAdapter()
+    const result = await selectMediaAdapter({
+      isOpfsAvailable: () => true,
+      isUserFolderAvailable: () => false,
+      loadS3Config: async () => ({
+        publicConfig: {
+          endpoint: 'https://s3.example.com',
+          region: 'us-east-1',
+          bucket: 'b',
+          prefix: 'p',
+          accessKeyId: 'AK',
+          mode: 'persisted',
+        },
+      }),
+      getS3Credentials: () => null,
+      createS3: () => {
+        throw new Error('S3 adapter must not be created without credentials')
+      },
+      createOpfs: () => opfs,
+    })
+    expect(result.backend).toBe('opfs+idb')
+  })
 })
