@@ -95,16 +95,24 @@ export async function selectMediaAdapter(overrides = {}) {
     overrides.createCachingS3 ||
     ((params) => createCachingMediaAdapter(params))
 
-  // #region agent log
-  fetch('http://127.0.0.1:7652/ingest/aa926f98-514d-4a15-a6d3-0b9951fec4e7',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'53352e'},body:JSON.stringify({sessionId:'53352e',hypothesisId:'A',location:'media/index.js:selectMediaAdapter:enter',message:'selectMediaAdapter called',data:{stack:new Error().stack?.split('\n').slice(1,6).join(' | ')},timestamp:Date.now()})}).catch(()=>{});
-  // #endregion
+  logger.debug('media.backend.select.start', {
+    opfsAvailable: opfsAvailable(),
+    userFolderAvailable: userFolderAvailable(),
+  })
+
   // Tier 1: S3-compatible remote with local read-through cache.
   try {
     const stored = await loadS3()
     const credentials = readS3Credentials()
-    // #region agent log
-    fetch('http://127.0.0.1:7652/ingest/aa926f98-514d-4a15-a6d3-0b9951fec4e7',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'53352e'},body:JSON.stringify({sessionId:'53352e',hypothesisId:'A',location:'media/index.js:selectMediaAdapter:s3-check',message:'S3 tier inputs',data:{hasStored:!!stored,hasPublicConfig:!!stored?.publicConfig,publicConfigMode:stored?.publicConfig?.mode,bucket:stored?.publicConfig?.bucket,endpoint:stored?.publicConfig?.endpoint,hasCredentials:!!credentials,hasSecret:!!credentials?.secretAccessKey,sharedBucket:Boolean(stored?.publicConfig?.sharedBucket)},timestamp:Date.now()})}).catch(()=>{});
-    // #endregion
+    logger.debug('media.backend.select.s3.inputs', {
+      hasStored: Boolean(stored),
+      hasPublicConfig: Boolean(stored?.publicConfig),
+      mode: stored?.publicConfig?.mode || null,
+      bucket: stored?.publicConfig?.bucket || null,
+      hasCredentials: Boolean(credentials),
+      hasSecret: Boolean(credentials?.secretAccessKey),
+      sharedBucket: Boolean(stored?.publicConfig?.sharedBucket),
+    })
     if (stored?.publicConfig && credentials?.secretAccessKey) {
       const sharedBucket = Boolean(stored.publicConfig.sharedBucket)
       const remote = buildS3({
@@ -120,7 +128,8 @@ export async function selectMediaAdapter(overrides = {}) {
           await opfsAdapter.listHashes()
           cache = opfsAdapter
           backend = 's3+opfs'
-        } catch {
+        } catch (cacheError) {
+          logger.error('media.backend.select.s3.opfs.cache.failed', cacheError)
           cache = createIdb()
           backend = 's3+idb'
         }
@@ -129,17 +138,16 @@ export async function selectMediaAdapter(overrides = {}) {
         backend = 's3+idb'
       }
       setMediaAdapter(buildCachingS3({ remote, cache, localGcOnly: sharedBucket }))
-      // #region agent log
-      fetch('http://127.0.0.1:7652/ingest/aa926f98-514d-4a15-a6d3-0b9951fec4e7',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'53352e'},body:JSON.stringify({sessionId:'53352e',hypothesisId:'A',location:'media/index.js:selectMediaAdapter:s3-installed',message:'Cached S3 adapter installed',data:{backend,sharedBucket},timestamp:Date.now()})}).catch(()=>{});
-      // #endregion
+      logger.info('media.backend.select.installed', {
+        backend,
+        sharedBucket,
+        localGcOnly: sharedBucket,
+      })
       return { backend, error: null }
     }
   } catch (error) {
     // Fall through to lower tiers when the S3 config is unreadable.
     logger.error('media.backend.tier.s3.failed', error, { tier: 's3' })
-    // #region agent log
-    fetch('http://127.0.0.1:7652/ingest/aa926f98-514d-4a15-a6d3-0b9951fec4e7',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'53352e'},body:JSON.stringify({sessionId:'53352e',hypothesisId:'D',location:'media/index.js:selectMediaAdapter:s3-error',message:'S3 tier threw',data:{error:String(error?.message||error)},timestamp:Date.now()})}).catch(()=>{});
-    // #endregion
   }
 
   // Tier 2: user-picked folder (opt-in, persisted handle, granted perm).
@@ -148,11 +156,18 @@ export async function selectMediaAdapter(overrides = {}) {
       const handle = await loadHandle()
       if (handle) {
         const state = await ensurePermission(handle, { interactive: false })
+        logger.debug('media.backend.select.userfolder.permission', {
+          state,
+          folderName: handle?.name || null,
+        })
         if (state === 'granted') {
           const userFolderAdapter = createUserFolder(handle)
           await userFolderAdapter.listHashes()
           const idbFallback = createIdb()
           setMediaAdapter(createLayeredMediaAdapter([userFolderAdapter, idbFallback]))
+          logger.info('media.backend.select.installed', {
+            backend: 'userfolder+idb',
+          })
           return { backend: 'userfolder+idb', error: null }
         }
       }
@@ -171,26 +186,21 @@ export async function selectMediaAdapter(overrides = {}) {
       await opfsAdapter.listHashes()
       const idbAdapter = createIdb()
       setMediaAdapter(createLayeredMediaAdapter([opfsAdapter, idbAdapter]))
-      // #region agent log
-      fetch('http://127.0.0.1:7652/ingest/aa926f98-514d-4a15-a6d3-0b9951fec4e7',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'53352e'},body:JSON.stringify({sessionId:'53352e',hypothesisId:'A',location:'media/index.js:selectMediaAdapter:tier3-opfs+idb',message:'Selected OPFS+IDB tier (no S3)',data:{},timestamp:Date.now()})}).catch(()=>{});
-      // #endregion
+      logger.info('media.backend.select.installed', { backend: 'opfs+idb' })
       return { backend: 'opfs+idb', error: null }
     } catch (error) {
       // Fall through to IDB.
+      logger.error('media.backend.tier.opfs.failed', error, { tier: 'opfs' })
       const idbAdapter = createIdb()
       setMediaAdapter(idbAdapter)
-      // #region agent log
-      fetch('http://127.0.0.1:7652/ingest/aa926f98-514d-4a15-a6d3-0b9951fec4e7',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'53352e'},body:JSON.stringify({sessionId:'53352e',hypothesisId:'A',location:'media/index.js:selectMediaAdapter:tier3->idb',message:'OPFS failed, fell through to IDB',data:{error:String(error?.message||error)},timestamp:Date.now()})}).catch(()=>{});
-      // #endregion
+      logger.info('media.backend.select.installed', { backend: 'idb' })
       return { backend: 'idb', error }
     }
   }
 
   // Tier 4: IDB only.
   setMediaAdapter(createIdb())
-  // #region agent log
-  fetch('http://127.0.0.1:7652/ingest/aa926f98-514d-4a15-a6d3-0b9951fec4e7',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'53352e'},body:JSON.stringify({sessionId:'53352e',hypothesisId:'A',location:'media/index.js:selectMediaAdapter:tier4-idb',message:'Fell through to IDB tier',data:{},timestamp:Date.now()})}).catch(()=>{});
-  // #endregion
+  logger.info('media.backend.select.installed', { backend: 'idb' })
   return { backend: 'idb', error: null }
 }
 

@@ -23,6 +23,7 @@
  */
 
 import { getActiveContextId, getStorageAdapter } from '../storage/index.js'
+import { logger } from '../logging/logger.js'
 
 const META_KEY = 'media-s3-config'
 const PBKDF2_ITERATIONS = 200_000
@@ -153,6 +154,14 @@ export async function saveS3Config(publicConfig, options = {}) {
       secretAccessKey: options.secretAccessKey,
     }
   }
+  logger.info('media.s3.config.saved', {
+    contextId: getActiveContextId() || 'default',
+    mode: publicConfig.mode,
+    bucket: publicConfig.bucket,
+    region: publicConfig.region,
+    sharedBucket: Boolean(publicConfig.sharedBucket),
+    hasInMemoryCredentials: Boolean(options.secretAccessKey),
+  })
 }
 
 /**
@@ -180,6 +189,9 @@ export async function clearS3Config() {
   await storage.deleteMeta(META_KEY)
   inMemoryCredentials = null
   clearRememberedS3UnlockPassphrase()
+  logger.info('media.s3.config.cleared', {
+    contextId: getActiveContextId() || 'default',
+  })
 }
 
 /**
@@ -194,6 +206,10 @@ export async function unlockS3Config(passphrase) {
   if (!stored) return null
   const { publicConfig, encryptedSecret, iv, salt } = stored
   if (publicConfig.mode !== 'persisted' || !encryptedSecret || !iv || !salt) {
+    logger.debug('media.s3.config.unlock.skipped', {
+      contextId: getActiveContextId() || 'default',
+      mode: publicConfig?.mode,
+    })
     return null
   }
   const key = await deriveAesKey(passphrase, base64ToBytes(salt))
@@ -204,12 +220,19 @@ export async function unlockS3Config(passphrase) {
       key,
       base64ToBytes(encryptedSecret),
     )
-  } catch {
+  } catch (error) {
+    logger.error('media.s3.config.unlock.failed', error, {
+      contextId: getActiveContextId() || 'default',
+    })
     return null
   }
   const secretAccessKey = new TextDecoder().decode(plaintext)
   const credentials = { ...publicConfig, secretAccessKey }
   inMemoryCredentials = credentials
+  logger.info('media.s3.config.unlocked', {
+    contextId: getActiveContextId() || 'default',
+    bucket: publicConfig.bucket,
+  })
   return credentials
 }
 

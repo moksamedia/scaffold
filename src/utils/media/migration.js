@@ -9,6 +9,7 @@
 import { getStorageAdapter } from '../storage/index.js'
 import { rewriteDataUrisToRefs, transformLongNoteHtmlInPlace } from './references.js'
 import { ingestDataUrl } from './ingest.js'
+import { logger } from '../logging/logger.js'
 
 async function ingestAndReturnHash(dataUrl) {
   const { hash } = await ingestDataUrl(dataUrl)
@@ -88,10 +89,32 @@ export async function migrateVersionsToReferences() {
  * @returns {Promise<{migratedProjectCount: number, migratedVersionCount: number}>}
  */
 export async function runMediaMigration() {
-  const projectsResult = await migrateProjectsToReferences()
-  const versionsResult = await migrateVersionsToReferences()
-  return {
-    migratedProjectCount: projectsResult.migratedProjectCount,
-    migratedVersionCount: versionsResult.migratedVersionCount,
+  const startedAt = Date.now()
+  try {
+    const projectsResult = await migrateProjectsToReferences()
+    const versionsResult = await migrateVersionsToReferences()
+    if (
+      projectsResult.migratedProjectCount > 0 ||
+      versionsResult.migratedVersionCount > 0
+    ) {
+      logger.info('media.migration.completed', {
+        migratedProjectCount: projectsResult.migratedProjectCount,
+        migratedVersionCount: versionsResult.migratedVersionCount,
+        durationMs: Date.now() - startedAt,
+      })
+    } else {
+      logger.debug('media.migration.noop', {
+        durationMs: Date.now() - startedAt,
+      })
+    }
+    return {
+      migratedProjectCount: projectsResult.migratedProjectCount,
+      migratedVersionCount: versionsResult.migratedVersionCount,
+    }
+  } catch (error) {
+    logger.error('media.migration.failed', error, {
+      durationMs: Date.now() - startedAt,
+    })
+    throw error
   }
 }

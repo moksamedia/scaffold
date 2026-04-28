@@ -15,9 +15,15 @@
  * from IDB into OPFS the first time they are read.
  */
 
+import { logger } from '../logging/logger.js'
+
 const SCAFFOLD_DIR = 'scaffold'
 const MEDIA_DIR = 'media'
 const META_SUFFIX = '.meta.json'
+
+function hp(hash) {
+  return typeof hash === 'string' ? hash.slice(0, 12) : null
+}
 
 function metaName(hash) {
   return `${hash}${META_SUFFIX}`
@@ -119,6 +125,7 @@ export function createOpfsMediaAdapter(options = {}) {
     async put(hash, blob, mime) {
       const dir = await getMediaDir()
       const now = Date.now()
+      const startedAt = now
 
       // Preserve createdAt across re-puts so the GC grace window is
       // measured from first ingest, not last write.
@@ -129,23 +136,37 @@ export function createOpfsMediaAdapter(options = {}) {
           const existing = await readJsonFromHandle(existingMetaHandle)
           if (typeof existing?.createdAt === 'number') createdAt = existing.createdAt
         } catch {
-          // ignore corrupt meta
+          logger.debug('media.opfs.meta.corrupt', { hashPrefix: hp(hash) })
         }
       }
 
-      const fileHandle = await dir.getFileHandle(hash, { create: true })
-      const writable = await fileHandle.createWritable()
-      await writable.write(blob)
-      await writable.close()
+      try {
+        const fileHandle = await dir.getFileHandle(hash, { create: true })
+        const writable = await fileHandle.createWritable()
+        await writable.write(blob)
+        await writable.close()
 
-      const metaHandle = await dir.getFileHandle(metaName(hash), { create: true })
-      await writeJsonToHandle(metaHandle, {
-        hash,
-        mime: mime || blob.type || 'application/octet-stream',
-        size: typeof blob.size === 'number' ? blob.size : 0,
-        createdAt,
-        lastUsedAt: now,
-      })
+        const metaHandle = await dir.getFileHandle(metaName(hash), { create: true })
+        await writeJsonToHandle(metaHandle, {
+          hash,
+          mime: mime || blob.type || 'application/octet-stream',
+          size: typeof blob.size === 'number' ? blob.size : 0,
+          createdAt,
+          lastUsedAt: now,
+        })
+        logger.debug('media.opfs.put.success', {
+          hashPrefix: hp(hash),
+          sizeBytes: blob?.size,
+          mime: mime || blob?.type || null,
+          durationMs: Date.now() - startedAt,
+        })
+      } catch (error) {
+        logger.error('media.opfs.put.failed', error, {
+          hashPrefix: hp(hash),
+          sizeBytes: blob?.size,
+        })
+        throw error
+      }
     },
 
     async delete(hash) {
@@ -160,6 +181,7 @@ export function createOpfsMediaAdapter(options = {}) {
       } catch {
         // ignore "not found"
       }
+      logger.debug('media.opfs.delete', { hashPrefix: hp(hash) })
     },
 
     async listHashes() {

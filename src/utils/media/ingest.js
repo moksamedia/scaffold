@@ -6,6 +6,7 @@
 
 import { sha256Hex } from './hash.js'
 import { getMediaAdapter } from './index.js'
+import { logger } from '../logging/logger.js'
 
 /**
  * Ingest the bytes of a `Blob` into the media adapter.
@@ -18,11 +19,34 @@ export async function ingestBlob(blob, explicitMime) {
   if (!(blob instanceof Blob)) {
     throw new TypeError('ingestBlob: expected a Blob')
   }
+  const startedAt = Date.now()
   const hash = await sha256Hex(blob)
   const mime = explicitMime || blob.type || 'application/octet-stream'
   const adapter = getMediaAdapter()
-  if (!(await adapter.has(hash))) {
-    await adapter.put(hash, blob, mime)
+  const alreadyExists = await adapter.has(hash)
+  if (!alreadyExists) {
+    try {
+      await adapter.put(hash, blob, mime)
+      logger.info('media.ingest.stored', {
+        hashPrefix: hash.slice(0, 12),
+        sizeBytes: blob.size,
+        mime,
+        durationMs: Date.now() - startedAt,
+      })
+    } catch (error) {
+      logger.error('media.ingest.failed', error, {
+        hashPrefix: hash.slice(0, 12),
+        sizeBytes: blob.size,
+        mime,
+      })
+      throw error
+    }
+  } else {
+    logger.debug('media.ingest.deduped', {
+      hashPrefix: hash.slice(0, 12),
+      sizeBytes: blob.size,
+      mime,
+    })
   }
   return { hash, mime, size: blob.size }
 }

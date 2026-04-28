@@ -26,6 +26,11 @@
  */
 
 import { signRequest } from './sigv4.js'
+import { logger } from '../logging/logger.js'
+
+function hashPrefix(hash) {
+  return typeof hash === 'string' ? hash.slice(0, 12) : null
+}
 
 /**
  * @typedef {Object} S3AdapterConfig
@@ -116,21 +121,86 @@ export function createS3MediaAdapter(config) {
   if (!config) throw new Error('createS3MediaAdapter: config is required')
   const fullConfig = { ...config, prefix: normalizePrefix(config.prefix) }
 
+  logger.info('media.s3.adapter.created', {
+    bucket: fullConfig.bucket,
+    region: fullConfig.region,
+    prefix: fullConfig.prefix,
+    pathStyle: fullConfig.pathStyle !== false,
+    sharedBucket: Boolean(fullConfig.sharedBucket),
+  })
+
   async function has(hash) {
     const url = buildObjectUrl(fullConfig, objectKey(fullConfig.prefix, hash))
-    const response = await performSignedRequest(fullConfig, { method: 'HEAD', url })
-    if (response.status === 404) return false
+    const startedAt = Date.now()
+    let response
+    try {
+      response = await performSignedRequest(fullConfig, { method: 'HEAD', url })
+    } catch (error) {
+      logger.error('media.s3.has.network.failed', error, {
+        hashPrefix: hashPrefix(hash),
+        bucket: fullConfig.bucket,
+        durationMs: Date.now() - startedAt,
+      })
+      throw error
+    }
+    if (response.status === 404) {
+      logger.debug('media.s3.has.miss', {
+        hashPrefix: hashPrefix(hash),
+        bucket: fullConfig.bucket,
+        remoteStatusCode: 404,
+        durationMs: Date.now() - startedAt,
+      })
+      return false
+    }
     if (!response.ok) {
+      logger.error('media.s3.has.failed', {
+        hashPrefix: hashPrefix(hash),
+        bucket: fullConfig.bucket,
+        remoteStatusCode: response.status,
+        statusText: response.statusText,
+        durationMs: Date.now() - startedAt,
+      })
       throw new Error(`S3 HEAD ${hash} failed: ${response.status} ${response.statusText}`)
     }
+    logger.debug('media.s3.has.hit', {
+      hashPrefix: hashPrefix(hash),
+      bucket: fullConfig.bucket,
+      durationMs: Date.now() - startedAt,
+    })
     return true
   }
 
   async function get(hash) {
     const url = buildObjectUrl(fullConfig, objectKey(fullConfig.prefix, hash))
-    const response = await performSignedRequest(fullConfig, { method: 'GET', url })
-    if (response.status === 404) return null
+    const startedAt = Date.now()
+    let response
+    try {
+      response = await performSignedRequest(fullConfig, { method: 'GET', url })
+    } catch (error) {
+      logger.error('media.s3.get.network.failed', error, {
+        hashPrefix: hashPrefix(hash),
+        bucket: fullConfig.bucket,
+        durationMs: Date.now() - startedAt,
+      })
+      throw error
+    }
+    if (response.status === 404) {
+      logger.debug('media.s3.get.miss', {
+        hashPrefix: hashPrefix(hash),
+        bucket: fullConfig.bucket,
+        remoteStatusCode: 404,
+        durationMs: Date.now() - startedAt,
+      })
+      return null
+    }
     if (!response.ok) {
+      logger.error('media.s3.get.failed', {
+        hashPrefix: hashPrefix(hash),
+        bucket: fullConfig.bucket,
+        remoteStatusCode: response.status,
+        statusText: response.statusText,
+        durationMs: Date.now() - startedAt,
+      })
       throw new Error(`S3 GET ${hash} failed: ${response.status} ${response.statusText}`)
     }
     const blob = await response.blob()
@@ -142,6 +212,13 @@ export function createS3MediaAdapter(config) {
       response.headers.get('x-amz-meta-createdat') ||
       response.headers.get('last-modified')
     const createdAt = createdAtRaw ? Date.parse(createdAtRaw) || Date.now() : Date.now()
+    logger.debug('media.s3.get.success', {
+      hashPrefix: hashPrefix(hash),
+      bucket: fullConfig.bucket,
+      sizeBytes: blob.size,
+      mime,
+      durationMs: Date.now() - startedAt,
+    })
     return {
       blob,
       mime,
@@ -154,29 +231,82 @@ export function createS3MediaAdapter(config) {
     const url = buildObjectUrl(fullConfig, objectKey(fullConfig.prefix, hash))
     const effectiveMime = mime || blob?.type || 'application/octet-stream'
     const buffer = await blob.arrayBuffer()
-    const response = await performSignedRequest(fullConfig, {
-      method: 'PUT',
-      url,
-      headers: {
-        'content-type': effectiveMime,
-        'x-amz-meta-mime': effectiveMime,
-        'x-amz-meta-createdat': new Date().toISOString(),
-      },
-      body: new Uint8Array(buffer),
-    })
+    const startedAt = Date.now()
+    let response
+    try {
+      response = await performSignedRequest(fullConfig, {
+        method: 'PUT',
+        url,
+        headers: {
+          'content-type': effectiveMime,
+          'x-amz-meta-mime': effectiveMime,
+          'x-amz-meta-createdat': new Date().toISOString(),
+        },
+        body: new Uint8Array(buffer),
+      })
+    } catch (error) {
+      logger.error('media.s3.put.network.failed', error, {
+        hashPrefix: hashPrefix(hash),
+        bucket: fullConfig.bucket,
+        sizeBytes: blob?.size,
+        mime: effectiveMime,
+        durationMs: Date.now() - startedAt,
+      })
+      throw error
+    }
     if (!response.ok) {
+      logger.error('media.s3.put.failed', {
+        hashPrefix: hashPrefix(hash),
+        bucket: fullConfig.bucket,
+        sizeBytes: blob?.size,
+        mime: effectiveMime,
+        remoteStatusCode: response.status,
+        statusText: response.statusText,
+        durationMs: Date.now() - startedAt,
+      })
       throw new Error(`S3 PUT ${hash} failed: ${response.status} ${response.statusText}`)
     }
+    logger.debug('media.s3.put.success', {
+      hashPrefix: hashPrefix(hash),
+      bucket: fullConfig.bucket,
+      sizeBytes: blob?.size,
+      mime: effectiveMime,
+      durationMs: Date.now() - startedAt,
+    })
   }
 
   async function performRemoteDelete(hash) {
     const url = buildObjectUrl(fullConfig, objectKey(fullConfig.prefix, hash))
-    const response = await performSignedRequest(fullConfig, { method: 'DELETE', url })
+    const startedAt = Date.now()
+    let response
+    try {
+      response = await performSignedRequest(fullConfig, { method: 'DELETE', url })
+    } catch (error) {
+      logger.error('media.s3.delete.network.failed', error, {
+        hashPrefix: hashPrefix(hash),
+        bucket: fullConfig.bucket,
+        durationMs: Date.now() - startedAt,
+      })
+      throw error
+    }
     // S3 returns 204 on successful delete and (per spec) treats deletes
     // of missing objects as success. Anything else is an error.
     if (!response.ok && response.status !== 404) {
+      logger.error('media.s3.delete.failed', {
+        hashPrefix: hashPrefix(hash),
+        bucket: fullConfig.bucket,
+        remoteStatusCode: response.status,
+        statusText: response.statusText,
+        durationMs: Date.now() - startedAt,
+      })
       throw new Error(`S3 DELETE ${hash} failed: ${response.status} ${response.statusText}`)
     }
+    logger.debug('media.s3.delete.success', {
+      hashPrefix: hashPrefix(hash),
+      bucket: fullConfig.bucket,
+      remoteStatusCode: response.status,
+      durationMs: Date.now() - startedAt,
+    })
   }
 
   // When `sharedBucket` is true, this client treats the bucket as
@@ -184,32 +314,77 @@ export function createS3MediaAdapter(config) {
   // we no longer use locally, so automated GC must not issue DELETE.
   // Use `forceDelete` for explicit, user-confirmed remote eviction.
   async function deleteHash(hash) {
-    if (fullConfig.sharedBucket) return
+    if (fullConfig.sharedBucket) {
+      logger.debug('media.s3.delete.skipped.sharedBucket', {
+        hashPrefix: hashPrefix(hash),
+        bucket: fullConfig.bucket,
+      })
+      return
+    }
     await performRemoteDelete(hash)
   }
 
   async function forceDelete(hash) {
+    logger.info('media.s3.forceDelete', {
+      hashPrefix: hashPrefix(hash),
+      bucket: fullConfig.bucket,
+      sharedBucket: Boolean(fullConfig.sharedBucket),
+    })
     await performRemoteDelete(hash)
   }
 
   async function listAllObjects() {
     const objects = []
     let continuationToken = null
+    let pageCount = 0
+    const startedAt = Date.now()
     do {
       const params = new URLSearchParams()
       params.set('list-type', '2')
       params.set('prefix', `${fullConfig.prefix}/`)
       if (continuationToken) params.set('continuation-token', continuationToken)
       const url = buildBucketUrl(fullConfig, params.toString())
-      const response = await performSignedRequest(fullConfig, { method: 'GET', url })
+      const pageStartedAt = Date.now()
+      let response
+      try {
+        response = await performSignedRequest(fullConfig, { method: 'GET', url })
+      } catch (error) {
+        logger.error('media.s3.list.network.failed', error, {
+          bucket: fullConfig.bucket,
+          pageCount,
+          durationMs: Date.now() - pageStartedAt,
+        })
+        throw error
+      }
       if (!response.ok) {
+        logger.error('media.s3.list.failed', {
+          bucket: fullConfig.bucket,
+          pageCount,
+          remoteStatusCode: response.status,
+          statusText: response.statusText,
+          durationMs: Date.now() - pageStartedAt,
+        })
         throw new Error(`S3 LIST failed: ${response.status} ${response.statusText}`)
       }
       const xml = await response.text()
       const parsed = parseListV2Xml(xml, fullConfig.prefix)
       objects.push(...parsed.objects)
       continuationToken = parsed.nextContinuationToken
+      pageCount += 1
+      logger.debug('media.s3.list.page', {
+        bucket: fullConfig.bucket,
+        pageIndex: pageCount,
+        objectsThisPage: parsed.objects.length,
+        hasMore: Boolean(continuationToken),
+        durationMs: Date.now() - pageStartedAt,
+      })
     } while (continuationToken)
+    logger.debug('media.s3.list.success', {
+      bucket: fullConfig.bucket,
+      totalObjects: objects.length,
+      pageCount,
+      durationMs: Date.now() - startedAt,
+    })
     return objects
   }
 

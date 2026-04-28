@@ -15,6 +15,7 @@
 
 import { createOpfsMediaAdapter } from './opfs-adapter.js'
 import { getActiveContextId, getStorageAdapter } from '../storage/index.js'
+import { logger } from '../logging/logger.js'
 
 // Marker key written into the meta store. The wrapping
 // context-scoped adapter automatically prefixes this with
@@ -43,10 +44,31 @@ export function isUserFolderApiAvailable() {
  */
 export async function pickUserFolder() {
   if (!isUserFolderApiAvailable()) {
+    logger.error('media.userfolder.api.unavailable', {
+      contextId: getActiveContextId() || 'default',
+    })
     throw new Error('Your browser does not support choosing a folder for media storage.')
   }
-  const handle = await window.showDirectoryPicker({ mode: 'readwrite' })
+  let handle
+  try {
+    handle = await window.showDirectoryPicker({ mode: 'readwrite' })
+  } catch (error) {
+    if (error?.name === 'AbortError') {
+      logger.debug('media.userfolder.pick.cancelled', {
+        contextId: getActiveContextId() || 'default',
+      })
+    } else {
+      logger.error('media.userfolder.pick.failed', error, {
+        contextId: getActiveContextId() || 'default',
+      })
+    }
+    throw error
+  }
   await persistUserFolderHandle(handle)
+  logger.info('media.userfolder.picked', {
+    contextId: getActiveContextId() || 'default',
+    folderName: handle?.name || null,
+  })
   return handle
 }
 
@@ -108,8 +130,14 @@ export async function clearUserFolderHandle() {
       tx.onerror = () => reject(tx.error)
       tx.objectStore('userfolder-handle').delete(storeKey)
     })
-  } catch {
+    logger.info('media.userfolder.cleared', {
+      contextId: getActiveContextId() || 'default',
+    })
+  } catch (error) {
     // best-effort: marker is already cleared, the handle row leaks at most
+    logger.error('media.userfolder.clear.handleStore.failed', error, {
+      contextId: getActiveContextId() || 'default',
+    })
   }
 }
 
@@ -127,9 +155,17 @@ export async function ensureUserFolderPermission(handle, options = {}) {
   if (!handle || typeof handle.queryPermission !== 'function') return null
   const current = await handle.queryPermission({ mode: 'readwrite' })
   if (current === 'granted') return 'granted'
-  if (!options.interactive) return current
+  if (!options.interactive) {
+    logger.debug('media.userfolder.permission.nonInteractive', { state: current })
+    return current
+  }
   if (typeof handle.requestPermission !== 'function') return current
-  return handle.requestPermission({ mode: 'readwrite' })
+  const next = await handle.requestPermission({ mode: 'readwrite' })
+  logger.info('media.userfolder.permission.requested', {
+    previousState: current,
+    state: next,
+  })
+  return next
 }
 
 /**

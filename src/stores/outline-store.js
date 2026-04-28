@@ -347,9 +347,10 @@ export const useOutlineStore = defineStore('outline', () => {
         typeof adapter.listCachedHashes === 'function' &&
         typeof adapter.backfillRemoteFromCache === 'function',
     )
-    // #region agent log
-    fetch('http://127.0.0.1:7652/ingest/aa926f98-514d-4a15-a6d3-0b9951fec4e7',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'53352e'},body:JSON.stringify({sessionId:'53352e',hypothesisId:'A',location:'outline-store.js:mediaBackendSupportsRemoteSync',message:'Adapter shape probed',data:{hasAdapter:!!adapter,hasListRemote:typeof adapter?.listRemoteHashes==='function',hasListCached:typeof adapter?.listCachedHashes==='function',hasBackfill:typeof adapter?.backfillRemoteFromCache==='function',supports,mediaBackendValue:mediaBackend.value},timestamp:Date.now()})}).catch(()=>{});
-    // #endregion
+    logger.debug('media.backend.supportsRemoteSync', {
+      mediaBackend: mediaBackend.value,
+      supports,
+    })
     return supports
   }
 
@@ -518,9 +519,14 @@ export const useOutlineStore = defineStore('outline', () => {
         listError = String(error?.message || error)
       }
     }
-    // #region agent log
-    fetch('http://127.0.0.1:7652/ingest/aa926f98-514d-4a15-a6d3-0b9951fec4e7',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'53352e'},body:JSON.stringify({sessionId:'53352e',hypothesisId:'E',location:'outline-store.js:getProjectMediaInventory:tiers',message:'Tier hash listings',data:{projectId,refsCount:kindByHash.size,isLayered,cacheCount:cacheHashes?.size??null,remoteCount:remoteHashes?.size??null,listError,refsSample:Array.from(kindByHash.keys()).slice(0,3).map(h=>h.slice(0,12))},timestamp:Date.now()})}).catch(()=>{});
-    // #endregion
+    logger.debug('media.inventory.tiers', {
+      projectId,
+      refsCount: kindByHash.size,
+      isLayered,
+      cacheCount: cacheHashes?.size ?? null,
+      remoteCount: remoteHashes?.size ?? null,
+      listError,
+    })
 
     const inventory = []
     for (const [hash, kind] of kindByHash) {

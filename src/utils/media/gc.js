@@ -22,6 +22,7 @@
 import { getBaseStorageAdapter } from '../storage/index.js'
 import { getMediaAdapter } from './index.js'
 import { collectProjectRefHashes } from './references.js'
+import { logger } from '../logging/logger.js'
 
 export const DEFAULT_MEDIA_GC_GRACE_MS = 24 * 60 * 60 * 1000
 
@@ -190,24 +191,50 @@ export async function runMediaGc(options = {}) {
   const now = options.now ?? Date.now()
   const graceMs = options.graceMs ?? DEFAULT_MEDIA_GC_GRACE_MS
 
+  const startedAt = Date.now()
   const live = await collectLiveMediaHashes()
-  const stats = { deleted: 0, kept: 0, skippedByGrace: 0 }
+  const stats = { deleted: 0, kept: 0, skippedByGrace: 0, errors: 0 }
 
   const hashes = await adapter.listHashes()
+  logger.debug('media.gc.start', {
+    totalHashes: hashes.length,
+    liveHashes: live.size,
+    graceMs,
+  })
   for (const hash of hashes) {
     if (live.has(hash)) {
       stats.kept++
       continue
     }
-    const row = await adapter.get(hash)
+    let row
+    try {
+      row = await adapter.get(hash)
+    } catch (error) {
+      logger.error('media.gc.get.failed', error, {
+        hashPrefix: hash.slice(0, 12),
+      })
+      stats.errors++
+      continue
+    }
     const createdAt = row?.createdAt || 0
     if (createdAt && now - createdAt < graceMs) {
       stats.skippedByGrace++
       continue
     }
-    await adapter.delete(hash)
-    stats.deleted++
+    try {
+      await adapter.delete(hash)
+      stats.deleted++
+    } catch (error) {
+      logger.error('media.gc.delete.failed', error, {
+        hashPrefix: hash.slice(0, 12),
+      })
+      stats.errors++
+    }
   }
 
+  logger.info('media.gc.completed', {
+    ...stats,
+    durationMs: Date.now() - startedAt,
+  })
   return stats
 }

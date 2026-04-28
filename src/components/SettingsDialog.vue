@@ -1142,9 +1142,14 @@ async function refreshS3State() {
       didAutoUnlock = !!getS3Credentials()?.secretAccessKey
     }
     const credentials = getS3Credentials()
-    // #region agent log
-    fetch('http://127.0.0.1:7652/ingest/aa926f98-514d-4a15-a6d3-0b9951fec4e7',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'53352e'},body:JSON.stringify({sessionId:'53352e',hypothesisId:'A',location:'SettingsDialog.vue:refreshS3State',message:'refreshS3State end',data:{configMode:stored.publicConfig.mode,hadCredsBefore,didAutoUnlock,unlockedAfter:!!credentials?.secretAccessKey,bucket:stored.publicConfig.bucket,storeMediaBackend:store.mediaBackend,supportsRemoteSync:store.mediaBackendSupportsRemoteSync()},timestamp:Date.now()})}).catch(()=>{});
-    // #endregion
+    logger.debug('settings.s3.refreshState', {
+      configMode: stored.publicConfig.mode,
+      didAutoUnlock,
+      unlockedAfter: Boolean(credentials?.secretAccessKey),
+      bucket: stored.publicConfig.bucket,
+      mediaBackend: store.mediaBackend,
+      supportsRemoteSync: store.mediaBackendSupportsRemoteSync(),
+    })
     s3ConfigState.value = {
       configured: true,
       mode: stored.publicConfig.mode,

@@ -59,12 +59,18 @@ export function createCachingMediaAdapter({ remote, cache, localGcOnly = false }
   if (!remote) throw new Error('createCachingMediaAdapter: remote adapter required')
   if (!cache) throw new Error('createCachingMediaAdapter: cache adapter required')
 
+  logger.info('media.cache.adapter.created', { localGcOnly: Boolean(localGcOnly) })
+
+  function hp(hash) {
+    return typeof hash === 'string' ? hash.slice(0, 12) : null
+  }
+
   async function safeCachePut(hash, blob, mime) {
     try {
       await cache.put(hash, blob, mime)
     } catch (error) {
       logger.error('media.cache.put.failed', error, {
-        hashPrefix: String(hash).slice(0, 12),
+        hashPrefix: hp(hash),
         mime: mime || null,
       })
     }
@@ -75,22 +81,43 @@ export function createCachingMediaAdapter({ remote, cache, localGcOnly = false }
       await cache.delete(hash)
     } catch (error) {
       logger.error('media.cache.delete.failed', error, {
-        hashPrefix: String(hash).slice(0, 12),
+        hashPrefix: hp(hash),
       })
     }
   }
 
   async function has(hash) {
-    if (await cache.has(hash)) return true
-    return remote.has(hash)
+    if (await cache.has(hash)) {
+      logger.debug('media.cache.has.cacheHit', { hashPrefix: hp(hash) })
+      return true
+    }
+    const remoteHas = await remote.has(hash)
+    logger.debug('media.cache.has.remoteCheck', {
+      hashPrefix: hp(hash),
+      result: remoteHas,
+    })
+    return remoteHas
   }
 
   async function get(hash) {
     const cached = await cache.get(hash)
-    if (cached) return cached
+    if (cached) {
+      logger.debug('media.cache.get.cacheHit', {
+        hashPrefix: hp(hash),
+        sizeBytes: cached.size,
+        mime: cached.mime,
+      })
+      return cached
+    }
+    logger.debug('media.cache.get.cacheMiss', { hashPrefix: hp(hash) })
     const fetched = await remote.get(hash)
     if (fetched?.blob) {
       await safeCachePut(hash, fetched.blob, fetched.mime)
+      logger.debug('media.cache.get.promoted', {
+        hashPrefix: hp(hash),
+        sizeBytes: fetched.size,
+        mime: fetched.mime,
+      })
     }
     return fetched
   }
@@ -104,6 +131,7 @@ export function createCachingMediaAdapter({ remote, cache, localGcOnly = false }
     if (localGcOnly) {
       // Cache-only eviction: remote stays authoritative for other
       // clients in the shared bucket.
+      logger.debug('media.cache.delete.cacheOnly', { hashPrefix: hp(hash) })
       await safeCacheDelete(hash)
       return
     }
@@ -112,6 +140,7 @@ export function createCachingMediaAdapter({ remote, cache, localGcOnly = false }
   }
 
   async function forceDeleteFromRemote(hash) {
+    logger.info('media.cache.forceDeleteFromRemote', { hashPrefix: hp(hash) })
     if (typeof remote.forceDelete === 'function') {
       await remote.forceDelete(hash)
     } else {
@@ -165,6 +194,7 @@ export function createCachingMediaAdapter({ remote, cache, localGcOnly = false }
    * @returns {Promise<{ checked: number, uploaded: number, skipped: number, failed: number }>}
    */
   async function backfillRemoteFromCache(options = {}) {
+    const startedAt = Date.now()
     let candidates
     if (options.hashes) {
       candidates = Array.from(options.hashes)
@@ -173,6 +203,10 @@ export function createCachingMediaAdapter({ remote, cache, localGcOnly = false }
       const remoteSet = new Set(await remote.listHashes())
       candidates = cacheHashes.filter((h) => !remoteSet.has(h))
     }
+    logger.info('media.backfill.start', {
+      total: candidates.length,
+      explicit: Boolean(options.hashes),
+    })
     const stats = {
       checked: candidates.length,
       uploaded: 0,
@@ -195,7 +229,7 @@ export function createCachingMediaAdapter({ remote, cache, localGcOnly = false }
         }
       } catch (error) {
         logger.error('media.backfill.hash.failed', error, {
-          hashPrefix: String(hash).slice(0, 12),
+          hashPrefix: hp(hash),
         })
         stats.failed++
       }
@@ -210,6 +244,10 @@ export function createCachingMediaAdapter({ remote, cache, localGcOnly = false }
         })
       }
     }
+    logger.info('media.backfill.success', {
+      ...stats,
+      durationMs: Date.now() - startedAt,
+    })
     return stats
   }
 

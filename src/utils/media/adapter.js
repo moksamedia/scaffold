@@ -23,6 +23,12 @@
  * @property {() => Promise<{count: number, bytes: number}>} getStats
  */
 
+import { logger } from '../logging/logger.js'
+
+function hp(hash) {
+  return typeof hash === 'string' ? hash.slice(0, 12) : null
+}
+
 /**
  * Wrap a StorageAdapter so it presents the MediaStorageAdapter interface.
  *
@@ -38,10 +44,34 @@ export function createMediaStorageAdapter(getStorageAdapter) {
       return getStorageAdapter().getMedia(hash)
     },
     async put(hash, blob, mime) {
-      return getStorageAdapter().putMedia(hash, blob, mime)
+      try {
+        const result = await getStorageAdapter().putMedia(hash, blob, mime)
+        logger.debug('media.idb.put.success', {
+          hashPrefix: hp(hash),
+          sizeBytes: blob?.size,
+          mime: mime || blob?.type || null,
+        })
+        return result
+      } catch (error) {
+        logger.error('media.idb.put.failed', error, {
+          hashPrefix: hp(hash),
+          sizeBytes: blob?.size,
+          mime: mime || blob?.type || null,
+        })
+        throw error
+      }
     },
     async delete(hash) {
-      return getStorageAdapter().deleteMedia(hash)
+      try {
+        const result = await getStorageAdapter().deleteMedia(hash)
+        logger.debug('media.idb.delete', { hashPrefix: hp(hash) })
+        return result
+      } catch (error) {
+        logger.error('media.idb.delete.failed', error, {
+          hashPrefix: hp(hash),
+        })
+        throw error
+      }
     },
     async listHashes() {
       return getStorageAdapter().listMediaHashes()

@@ -1,3 +1,9 @@
+import { logger } from '../logging/logger.js'
+
+function hp(hash) {
+  return typeof hash === 'string' ? hash.slice(0, 12) : null
+}
+
 /**
  * Compose multiple `MediaStorageAdapter`s into one. Reads check the
  * primary first and walk down the list; writes always go to the
@@ -19,12 +25,13 @@ export function createLayeredMediaAdapter(layers) {
     throw new Error('createLayeredMediaAdapter requires at least one layer')
   }
   const [primary, ...fallbacks] = layers
+  logger.info('media.layered.adapter.created', { layerCount: layers.length })
 
   return {
     async has(hash) {
       if (await primary.has(hash)) return true
-      for (const layer of fallbacks) {
-        if (await layer.has(hash)) return true
+      for (let i = 0; i < fallbacks.length; i++) {
+        if (await fallbacks[i].has(hash)) return true
       }
       return false
     },
@@ -32,14 +39,23 @@ export function createLayeredMediaAdapter(layers) {
     async get(hash) {
       const fromPrimary = await primary.get(hash)
       if (fromPrimary) return fromPrimary
-      for (const layer of fallbacks) {
-        const row = await layer.get(hash)
+      for (let i = 0; i < fallbacks.length; i++) {
+        const row = await fallbacks[i].get(hash)
         if (!row) continue
         // Lazily promote into the primary; ignore failures (best-effort).
         try {
           await primary.put(hash, row.blob, row.mime)
-        } catch {
+          logger.debug('media.layered.promoted', {
+            hashPrefix: hp(hash),
+            fromLayerIndex: i + 1,
+            sizeBytes: row?.size,
+          })
+        } catch (error) {
           // primary write failed; still return the row from the fallback
+          logger.error('media.layered.promote.failed', error, {
+            hashPrefix: hp(hash),
+            fromLayerIndex: i + 1,
+          })
         }
         return row
       }
