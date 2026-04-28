@@ -275,7 +275,10 @@
                 <span class="text-body2">
                   Connected to <strong>{{ s3Form.bucket }}</strong> at
                   <span class="text-caption">{{ s3Form.endpoint }}</span>
-                  ({{ s3ConfigState.mode === 'persisted' ? 'remembered' : 'session' }})
+                  ({{ s3ConfigState.mode === 'persisted' ? 'remembered' : 'session' }}<span
+                    v-if="s3ConfigState.sharedBucket"
+                  >, shared bucket</span
+                  >)
                 </span>
                 <q-space />
                 <q-btn
@@ -338,6 +341,19 @@
                           v-model="s3Form.pathStyle"
                           label="Use path-style URLs (recommended for non-AWS)"
                         />
+                      </div>
+                      <div class="col-12 row items-start">
+                        <q-checkbox
+                          v-model="s3Form.sharedBucket"
+                          label="Shared bucket (multiple devices write here)"
+                        >
+                          <q-tooltip max-width="320px">
+                            Keep automated cleanup on this device from
+                            deleting media that other devices may still
+                            reference. You can still purge bytes
+                            explicitly when deleting a project.
+                          </q-tooltip>
+                        </q-checkbox>
                       </div>
                       <q-input
                         v-model="s3Form.accessKeyId"
@@ -868,6 +884,7 @@ const s3Form = ref({
   bucket: '',
   prefix: 'scaffold/media',
   pathStyle: true,
+  sharedBucket: false,
   accessKeyId: '',
   secretAccessKey: '',
   passphrase: '',
@@ -879,6 +896,7 @@ const s3ConfigState = ref({
   configured: false,
   mode: null,
   unlocked: false,
+  sharedBucket: false,
 })
 const isSavingS3 = ref(false)
 
@@ -897,7 +915,7 @@ async function refreshS3State() {
   try {
     const stored = await loadS3Config()
     if (!stored?.publicConfig) {
-      s3ConfigState.value = { configured: false, mode: null, unlocked: false }
+      s3ConfigState.value = { configured: false, mode: null, unlocked: false, sharedBucket: false }
       return
     }
     const credentials = getS3Credentials()
@@ -905,6 +923,7 @@ async function refreshS3State() {
       configured: true,
       mode: stored.publicConfig.mode,
       unlocked: !!credentials?.secretAccessKey,
+      sharedBucket: Boolean(stored.publicConfig.sharedBucket),
     }
     s3Form.value = {
       ...s3Form.value,
@@ -913,6 +932,7 @@ async function refreshS3State() {
       bucket: stored.publicConfig.bucket || '',
       prefix: stored.publicConfig.prefix || 'scaffold/media',
       pathStyle: stored.publicConfig.pathStyle !== false,
+      sharedBucket: Boolean(stored.publicConfig.sharedBucket),
       accessKeyId: stored.publicConfig.accessKeyId || '',
       mode: stored.publicConfig.mode || 'session',
       secretAccessKey: '',
@@ -956,6 +976,7 @@ async function saveS3Settings() {
       bucket: s3Form.value.bucket.trim(),
       prefix: s3Form.value.prefix.trim() || 'scaffold/media',
       pathStyle: s3Form.value.pathStyle,
+      sharedBucket: s3Form.value.sharedBucket,
       accessKeyId: s3Form.value.accessKeyId.trim(),
       mode: s3Form.value.mode,
     }

@@ -204,7 +204,7 @@
     </q-dialog>
 
     <q-dialog v-model="showDeleteDialog">
-      <q-card>
+      <q-card style="min-width: 360px">
         <q-card-section>
           <div class="text-h6">Delete Project</div>
         </q-card-section>
@@ -214,9 +214,31 @@
           undone.
         </q-card-section>
 
+        <q-card-section
+          v-if="canPurgeRemoteMedia && deleteSharedMediaCount > 0"
+          class="q-pt-none"
+        >
+          <q-banner dense rounded class="bg-amber-1 text-amber-10 q-mb-sm">
+            This project uniquely references
+            <strong>{{ deleteSharedMediaCount }}</strong> media
+            file{{ deleteSharedMediaCount === 1 ? '' : 's' }} on your
+            shared S3 bucket. Other devices may still be using them.
+          </q-banner>
+          <q-checkbox
+            v-model="deletePurgeRemoteMedia"
+            label="Also delete from shared storage"
+          />
+        </q-card-section>
+
         <q-card-actions align="right">
-          <q-btn flat label="Cancel" v-close-popup />
-          <q-btn flat label="Delete" color="negative" @click="deleteSelectedProject" />
+          <q-btn flat label="Cancel" v-close-popup :disable="isDeletingProject" />
+          <q-btn
+            flat
+            label="Delete"
+            color="negative"
+            :loading="isDeletingProject"
+            @click="deleteSelectedProject"
+          />
         </q-card-actions>
       </q-card>
     </q-dialog>
@@ -264,7 +286,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted, onUnmounted } from 'vue'
+import { computed, ref, onMounted, onUnmounted } from 'vue'
 import { useOutlineStore } from 'stores/outline-store'
 import { storeToRefs } from 'pinia'
 import { useQuasar } from 'quasar'
@@ -279,6 +301,7 @@ const {
   indentSize,
   defaultListType,
   showIndentGuides,
+  mediaBackend,
 } = storeToRefs(store)
 
 const drawerOpen = ref(true)
@@ -286,6 +309,9 @@ const showNewProjectDialog = ref(false)
 const newProjectName = ref('')
 const showDeleteDialog = ref(false)
 const projectToDelete = ref(null)
+const deleteSharedMediaCount = ref(0)
+const deletePurgeRemoteMedia = ref(false)
+const isDeletingProject = ref(false)
 const editingProjectId = ref(null)
 const editingProjectName = ref('')
 const showExportAllDialog = ref(false)
@@ -368,15 +394,53 @@ function createNewProject() {
   }
 }
 
-function confirmDeleteProject(project) {
+// Only S3 backends carry a notion of "remote" the user might want
+// to purge. Local-only stacks (idb / opfs / userfolder) hide the
+// shared-storage section entirely.
+const canPurgeRemoteMedia = computed(() => {
+  const backend = mediaBackend.value || ''
+  return backend.startsWith('s3+')
+})
+
+async function confirmDeleteProject(project) {
   projectToDelete.value = project
+  deleteSharedMediaCount.value = 0
+  deletePurgeRemoteMedia.value = false
   showDeleteDialog.value = true
+  if (canPurgeRemoteMedia.value) {
+    try {
+      const orphans = await store.findOrphanedMediaForProjectRemoval(project.id)
+      // Only commit the count if the user is still looking at the
+      // same project's confirmation (avoid stale writes if they
+      // dismiss and re-open against another project quickly).
+      if (projectToDelete.value?.id === project.id) {
+        deleteSharedMediaCount.value = orphans?.size || 0
+      }
+    } catch (error) {
+      console.warn('Failed to compute orphaned media for delete prompt:', error)
+    }
+  }
 }
 
-function deleteSelectedProject() {
-  if (projectToDelete.value) {
-    store.deleteProject(projectToDelete.value.id)
+async function deleteSelectedProject() {
+  if (!projectToDelete.value) return
+  const target = projectToDelete.value
+  const purgeRemoteMedia = canPurgeRemoteMedia.value && deletePurgeRemoteMedia.value
+  isDeletingProject.value = true
+  try {
+    await store.deleteProject(target.id, { purgeRemoteMedia })
+  } catch (error) {
+    $q.notify({
+      type: 'negative',
+      message: `Delete failed: ${error.message}`,
+      position: 'top',
+      timeout: 4000,
+    })
+  } finally {
+    isDeletingProject.value = false
     projectToDelete.value = null
+    deleteSharedMediaCount.value = 0
+    deletePurgeRemoteMedia.value = false
     showDeleteDialog.value = false
   }
 }

@@ -38,6 +38,10 @@ import { signRequest } from './sigv4.js'
  * @property {string} [sessionToken]
  * @property {boolean} [pathStyle=true] - true: '<endpoint>/<bucket>/<key>'; false: '<bucket>.<endpoint>/<key>'
  * @property {string} [service='s3']
+ * @property {boolean} [sharedBucket=false] - When true, `delete()` is a no-op
+ *   (this client trusts other devices may still reference the object). Use
+ *   `forceDelete()` to bypass the no-op for user-confirmed cross-client
+ *   deletion.
  * @property {typeof fetch} [fetchImpl] - Test seam for mocking fetch
  */
 
@@ -98,13 +102,6 @@ async function performSignedRequest(config, { method, url, headers = {}, body = 
     body,
   })
   return response
-}
-
-function readSizeFromResponse(response) {
-  const len = response.headers.get('content-length')
-  if (!len) return 0
-  const n = Number(len)
-  return Number.isFinite(n) ? n : 0
 }
 
 /**
@@ -172,7 +169,7 @@ export function createS3MediaAdapter(config) {
     }
   }
 
-  async function deleteHash(hash) {
+  async function performRemoteDelete(hash) {
     const url = buildObjectUrl(fullConfig, objectKey(fullConfig.prefix, hash))
     const response = await performSignedRequest(fullConfig, { method: 'DELETE', url })
     // S3 returns 204 on successful delete and (per spec) treats deletes
@@ -180,6 +177,19 @@ export function createS3MediaAdapter(config) {
     if (!response.ok && response.status !== 404) {
       throw new Error(`S3 DELETE ${hash} failed: ${response.status} ${response.statusText}`)
     }
+  }
+
+  // When `sharedBucket` is true, this client treats the bucket as
+  // multi-tenant: another device may still hold references to a hash
+  // we no longer use locally, so automated GC must not issue DELETE.
+  // Use `forceDelete` for explicit, user-confirmed remote eviction.
+  async function deleteHash(hash) {
+    if (fullConfig.sharedBucket) return
+    await performRemoteDelete(hash)
+  }
+
+  async function forceDelete(hash) {
+    await performRemoteDelete(hash)
   }
 
   async function listAllObjects() {
@@ -215,7 +225,7 @@ export function createS3MediaAdapter(config) {
     return { count: objects.length, bytes }
   }
 
-  return { has, get, put, delete: deleteHash, listHashes, getStats }
+  return { has, get, put, delete: deleteHash, forceDelete, listHashes, getStats }
 }
 
 /**

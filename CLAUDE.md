@@ -78,9 +78,9 @@ Scaffold is a Quasar Vue 3 application for creating and managing hierarchical ou
 - `opfs-adapter.js` - Phase 2: `MediaStorageAdapter` implementation backed by `navigator.storage.getDirectory()` (the Origin Private File System). Mirrors the IDB layout with `.meta.json` sidecars; capability-detected at boot via `isOpfsAvailable()`.
 - `userfolder-adapter.js` - Phase 3: `MediaStorageAdapter` backed by a folder picked via `window.showDirectoryPicker()`. Persists the directory handle in a private IDB database (`scaffoldHandles`) so the same folder is used across reloads, and re-prompts for permission on the next user gesture.
 - `layered-adapter.js` - Composes multiple adapters (writes to the primary, reads fall through to secondaries with lazy promotion). Used to expose existing IDB content seamlessly under newer backends.
-- `cached-adapter.js` - Read-through cache wrapper: writes go to the durable backend first (S3) then mirror into a local cache (OPFS or IDB); reads check the cache first and promote remote hits.
+- `cached-adapter.js` - Read-through cache wrapper: writes go to the durable backend first (S3) then mirror into a local cache (OPFS or IDB); reads check the cache first and promote remote hits. Optional `localGcOnly: true` makes `delete()` cache-only and routes `listHashes`/`getStats` to the cache so a multi-device shared bucket isn't pruned by this client's automated GC. `forceDeleteFromRemote(hash)` always evicts the remote (preferring `remote.forceDelete` when available) and is the explicit "purge from S3" path used by the project-deletion prompt.
 - `sigv4.js` - Self-contained AWS Signature V4 implementation built on Web Crypto. Used by the S3 adapter; verified against AWS' canonical "get-vanilla" SigV4 test vector.
-- `s3-adapter.js` - Phase 4: `MediaStorageAdapter` against any S3-compatible endpoint (AWS, Cloudflare R2, MinIO, Backblaze B2, Wasabi). Performs HEAD/GET/PUT/DELETE/ListObjectsV2 with pagination; idempotent PUTs because keys are content hashes (`<prefix>/<hash>`).
+- `s3-adapter.js` - Phase 4: `MediaStorageAdapter` against any S3-compatible endpoint (AWS, Cloudflare R2, MinIO, Backblaze B2, Wasabi). Performs HEAD/GET/PUT/DELETE/ListObjectsV2 with pagination; idempotent PUTs because keys are content hashes (`<prefix>/<hash>`). The optional `sharedBucket: true` config flag makes `delete()` a no-op (multi-device safety) while `forceDelete(hash)` always issues the DELETE — used by the user-confirmed remote-eviction path.
 - `s3-config.js` - Persistence helpers for S3 credentials. Two modes: `'session'` (secret kept only in memory) and `'persisted'` (secret encrypted with AES-GCM via a PBKDF2-derived key from the user's passphrase). Exposes `saveS3Config`, `loadS3Config`, `unlockS3Config`, `lockS3Config`, `clearS3Config`, `getS3Credentials`, `setS3SessionCredentials`.
 
 ### `/tests/`
@@ -89,7 +89,7 @@ Scaffold is a Quasar Vue 3 application for creating and managing hierarchical ou
 - `tests/fixtures/projects.js` - Canonical project/item/divider factory helpers
 - `tests/json-export-import.test.js` - JSON export/import validation, normalization, roundtrip, and media payload round-trip
 - `tests/project-tab-lock.test.js` - Tab lock freshness, ownership, and edge cases
-- `tests/outline-store.test.js` - Pinia store integration: CRUD, outline ops, undo/redo, persistence, legacy migration
+- `tests/outline-store.test.js` - Pinia store integration: CRUD, outline ops, undo/redo, persistence, legacy migration, plus `findOrphanedMediaForProjectRemoval` orphan-set semantics and the `deleteProject(id, { purgeRemoteMedia })` shared-bucket purge path
 - `tests/markdown-export.test.js` - Markdown generation: numbering, nesting, dividers, notes
 - `tests/docx-export.test.js` - DOCX generation structural smoke tests
 - `tests/version-storage.test.js` - Version serialization/parsing with LZ compression and the reference-only invariant for new version snapshots
@@ -106,8 +106,8 @@ Scaffold is a Quasar Vue 3 application for creating and managing hierarchical ou
 - `tests/media-layered-adapter.test.js` - Multi-tier adapter behavior, lazy promotion, unified stats
 - `tests/media-select-adapter.test.js` - Capability-based selection priority across S3, user-folder, OPFS, and IDB tiers
 - `tests/media-sigv4.test.js` - SigV4 signing verified against AWS' "get-vanilla" canonical test vector
-- `tests/media-s3-adapter.test.js` - S3 adapter HEAD/GET/PUT/DELETE/LIST against a mock fetch, including ListObjectsV2 pagination
-- `tests/media-cached-adapter.test.js` - Read-through cache semantics: cache hits, lazy promotion, write-through to remote
+- `tests/media-s3-adapter.test.js` - S3 adapter HEAD/GET/PUT/DELETE/LIST against a mock fetch, including ListObjectsV2 pagination, `sharedBucket=true` no-op `delete()`, and `forceDelete()` bypass
+- `tests/media-cached-adapter.test.js` - Read-through cache semantics: cache hits, lazy promotion, write-through to remote, plus `localGcOnly` mode and the `forceDeleteFromRemote` escape hatch (with and without the underlying `remote.forceDelete`)
 - `tests/media-s3-config.test.js` - S3 credential persistence: session-mode in-memory only, persisted-mode AES-GCM/PBKDF2 round-trip, lock/clear semantics
 - `tests/zip.test.js` - STORED-only ZIP encoder/decoder round-trips, CRC32, magic numbers, UTF-8 paths
 - `tests/scaffoldz-bundle.test.js` - `.scaffoldz` bundle round-trip: media files + outline.json layout, magic-byte detection, re-ingestion on import
@@ -194,8 +194,9 @@ Scaffold is a Quasar Vue 3 application for creating and managing hierarchical ou
   - Phase 3 — JSON exports use `window.showSaveFilePicker` when supported (true Save dialog), with the anchor-click download as a fallback.
   - Phase 4 — S3-compatible adapter (`s3-adapter.js`) with self-contained SigV4 signing (`sigv4.js`), CORS-friendly HEAD/GET/PUT/DELETE, paginated ListObjectsV2 for `listHashes` / `getStats`. Wrapped by `cached-adapter.js` so writes go to S3 first (durability) and reads check the local cache first (speed + offline-tolerant).
   - Phase 4 — Credential persistence (`s3-config.js`): `'session'` keeps the secret in memory only; `'persisted'` encrypts the secret with AES-GCM using a PBKDF2-derived key from a user passphrase. The Settings dialog gates the locked vault behind a passphrase prompt before the adapter activates.
+  - Phase 4.5 — Shared-bucket mode (`s3Form.sharedBucket` checkbox in `SettingsDialog.vue`). When enabled, the bucket is treated as multi-tenant: `s3-adapter.js` `delete()` becomes a no-op so this device's automated GC can't remove bytes another device may still reference, and `cached-adapter.js` runs in `localGcOnly` mode so `listHashes`/`getStats` walk the local cache instead of round-tripping every object on S3. Project deletion gains an opt-in prompt: `findOrphanedMediaForProjectRemoval(projectId)` computes hashes uniquely held by the project (residual = other projects + ALL persisted version snapshots), and `deleteProject(id, { purgeRemoteMedia: true })` calls `purgeRemoteMediaHashes` → `cached-adapter.forceDeleteFromRemote` → `s3-adapter.forceDelete` for those hashes BEFORE removing the project locally. Backends without `forceDeleteFromRemote` (purely local IDB / OPFS / user-folder) hide the prompt entirely.
   - Phase 5 — `.scaffoldz` bundle export/import (`zip.js`, `scaffoldz.js`). Same data shape as JSON exports but media bytes are stored as separate `media/<hash>` files in a STORED-only zip, avoiding base64 inflation. `OutlineEditor.vue` and `ProjectsSidebar.vue` expose a format radio (`json` vs `scaffoldz`) in their export dialogs; the import handler auto-detects the format via extension or magic bytes.
-  - Store wiring: `outline-store.js` exposes `mediaBackend` (active backend label) and `reselectMediaBackend()` so the Settings UI can hot-swap backends after the user changes config.
+  - Store wiring: `outline-store.js` exposes `mediaBackend` (active backend label), `reselectMediaBackend()`, `findOrphanedMediaForProjectRemoval(projectId)`, and `purgeRemoteMediaHashes(hashes)`. `deleteProject` is async and accepts `{ purgeRemoteMedia }` to drive the shared-bucket eviction path.
 - Storage safety guardrails:
   - High-storage-usage warning based on adapter usage/quota stats
   - User-facing save error when persistence fails (including quota overflow scenarios)

@@ -99,7 +99,12 @@ export async function selectMediaAdapter(overrides = {}) {
     const stored = await loadS3()
     const credentials = readS3Credentials()
     if (stored?.publicConfig && credentials?.secretAccessKey) {
-      const remote = buildS3({ ...stored.publicConfig, ...credentials })
+      const sharedBucket = Boolean(stored.publicConfig.sharedBucket)
+      const remote = buildS3({
+        ...stored.publicConfig,
+        ...credentials,
+        sharedBucket,
+      })
       let cache
       let backend
       if (opfsAvailable()) {
@@ -116,7 +121,7 @@ export async function selectMediaAdapter(overrides = {}) {
         cache = createIdb()
         backend = 's3+idb'
       }
-      setMediaAdapter(buildCachingS3({ remote, cache }))
+      setMediaAdapter(buildCachingS3({ remote, cache, localGcOnly: sharedBucket }))
       return { backend, error: null }
     }
   } catch (error) {

@@ -34,6 +34,11 @@ const PBKDF2_ITERATIONS = 200_000
  * @property {boolean} pathStyle
  * @property {string} accessKeyId  - public-ish: identifies the user
  * @property {'session' | 'persisted'} mode
+ * @property {boolean} [sharedBucket=false] - when true, this client
+ *   treats the bucket as multi-tenant: automated GC will not delete
+ *   bytes (other devices may still reference them) and listing/stats
+ *   walk only the local cache. Explicit per-project deletion can still
+ *   evict via `forceDeleteFromRemote`.
  */
 
 /**

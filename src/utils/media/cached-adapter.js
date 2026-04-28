@@ -15,9 +15,19 @@
  *  - has(): tries the cache first; on miss, falls back to the remote.
  *  - delete(): deletes from the remote first (so the durable copy is
  *    gone immediately), then evicts the cache. As with put(), cache
- *    failures are non-fatal.
- *  - listHashes() / getStats(): always read from the remote — it's the
- *    source of truth. The cache is intentionally lossy.
+ *    failures are non-fatal. When `localGcOnly` is true the remote is
+ *    NEVER touched — only the cache is evicted. This matches a
+ *    multi-device "shared bucket" setup where automated GC on this
+ *    device must not delete bytes another device may still need.
+ *  - listHashes() / getStats(): by default read from the remote
+ *    (source of truth). When `localGcOnly` is true these delegate to
+ *    the cache so the GC sweep walks just this device's working set
+ *    instead of every object across all devices in the shared bucket.
+ *  - forceDeleteFromRemote(): explicit user-confirmed deletion. Always
+ *    issues the remote delete (preferring the adapter's `forceDelete`
+ *    when present so a `sharedBucket=true` S3 adapter still honors the
+ *    request), then evicts the cache. Used by the project-deletion
+ *    prompt to purge media this device uniquely references.
  *
  * The wrapper keeps the same interface as a regular adapter so it can
  * be swapped into the singleton via `setMediaAdapter`.
@@ -29,9 +39,13 @@
  * @param {Object} params
  * @param {MediaStorageAdapter} params.remote - durable backend
  * @param {MediaStorageAdapter} params.cache - fast local backend
- * @returns {MediaStorageAdapter}
+ * @param {boolean} [params.localGcOnly=false] - when true, automated
+ *   delete()/listHashes()/getStats() operate against the cache only
+ *   (the remote is preserved for other clients). Use
+ *   `forceDeleteFromRemote()` to bypass.
+ * @returns {MediaStorageAdapter & { forceDeleteFromRemote: (hash: string) => Promise<void> }}
  */
-export function createCachingMediaAdapter({ remote, cache }) {
+export function createCachingMediaAdapter({ remote, cache, localGcOnly = false }) {
   if (!remote) throw new Error('createCachingMediaAdapter: remote adapter required')
   if (!cache) throw new Error('createCachingMediaAdapter: cache adapter required')
 
@@ -72,17 +86,42 @@ export function createCachingMediaAdapter({ remote, cache }) {
   }
 
   async function deleteHash(hash) {
+    if (localGcOnly) {
+      // Cache-only eviction: remote stays authoritative for other
+      // clients in the shared bucket.
+      await safeCacheDelete(hash)
+      return
+    }
     await remote.delete(hash)
     await safeCacheDelete(hash)
   }
 
+  async function forceDeleteFromRemote(hash) {
+    if (typeof remote.forceDelete === 'function') {
+      await remote.forceDelete(hash)
+    } else {
+      await remote.delete(hash)
+    }
+    await safeCacheDelete(hash)
+  }
+
   async function listHashes() {
+    if (localGcOnly) return cache.listHashes()
     return remote.listHashes()
   }
 
   async function getStats() {
+    if (localGcOnly) return cache.getStats()
     return remote.getStats()
   }
 
-  return { has, get, put, delete: deleteHash, listHashes, getStats }
+  return {
+    has,
+    get,
+    put,
+    delete: deleteHash,
+    forceDeleteFromRemote,
+    listHashes,
+    getStats,
+  }
 }

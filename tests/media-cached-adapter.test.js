@@ -96,4 +96,85 @@ describe('createCachingMediaAdapter', () => {
     await expect(wrapped.put('h8', blob, 'image/png')).resolves.toBeUndefined()
     expect(remote.store.has('h8')).toBe(true)
   })
+
+  describe('localGcOnly mode (shared bucket)', () => {
+    let localOnly
+
+    beforeEach(() => {
+      localOnly = createCachingMediaAdapter({ remote, cache, localGcOnly: true })
+    })
+
+    it('delete() only evicts the cache; the remote is preserved', async () => {
+      const blob = new Blob([new Uint8Array([1])])
+      cache.store.set('h', { blob, mime: 'image/png', size: 1, createdAt: 0 })
+      remote.store.set('h', { blob, mime: 'image/png', size: 1, createdAt: 0 })
+      await localOnly.delete('h')
+      expect(cache.store.has('h')).toBe(false)
+      expect(remote.store.has('h')).toBe(true)
+    })
+
+    it('listHashes() returns the cache hashes (not remote)', async () => {
+      const blob = new Blob([new Uint8Array([1])])
+      remote.store.set('remote-only', { blob, mime: 'x', size: 1, createdAt: 0 })
+      cache.store.set('cache-only', { blob, mime: 'x', size: 1, createdAt: 0 })
+      expect((await localOnly.listHashes()).sort()).toEqual(['cache-only'])
+    })
+
+    it('getStats() reflects the cache (not remote)', async () => {
+      const blob = new Blob([new Uint8Array([1])])
+      remote.store.set('a', { blob, mime: 'x', size: 1, createdAt: 0 })
+      remote.store.set('b', { blob, mime: 'x', size: 1, createdAt: 0 })
+      cache.store.set('only-c', { blob, mime: 'x', size: 1, createdAt: 0 })
+      const stats = await localOnly.getStats()
+      expect(stats.count).toBe(1)
+    })
+
+    it('put() still writes through to the remote (durability preserved)', async () => {
+      const blob = new Blob([new Uint8Array([1, 2, 3])], { type: 'image/png' })
+      await localOnly.put('h-put', blob, 'image/png')
+      expect(remote.store.has('h-put')).toBe(true)
+      expect(cache.store.has('h-put')).toBe(true)
+    })
+  })
+
+  describe('forceDeleteFromRemote', () => {
+    it('prefers the remote.forceDelete escape hatch when available', async () => {
+      const blob = new Blob([new Uint8Array([1])])
+      const calls = { force: 0, plain: 0 }
+      remote.forceDelete = async (hash) => {
+        calls.force++
+        remote.store.delete(hash)
+      }
+      const originalDelete = remote.delete
+      remote.delete = async (hash) => {
+        calls.plain++
+        return originalDelete(hash)
+      }
+      cache.store.set('h', { blob, mime: 'x', size: 1, createdAt: 0 })
+      remote.store.set('h', { blob, mime: 'x', size: 1, createdAt: 0 })
+      const localOnly = createCachingMediaAdapter({ remote, cache, localGcOnly: true })
+      await localOnly.forceDeleteFromRemote('h')
+      expect(calls.force).toBe(1)
+      expect(calls.plain).toBe(0)
+      expect(remote.store.has('h')).toBe(false)
+      expect(cache.store.has('h')).toBe(false)
+    })
+
+    it('falls back to remote.delete when forceDelete is not exposed', async () => {
+      const blob = new Blob([new Uint8Array([1])])
+      cache.store.set('h', { blob, mime: 'x', size: 1, createdAt: 0 })
+      remote.store.set('h', { blob, mime: 'x', size: 1, createdAt: 0 })
+      await wrapped.forceDeleteFromRemote('h')
+      expect(remote.store.has('h')).toBe(false)
+      expect(cache.store.has('h')).toBe(false)
+    })
+
+    it('always touches remote, even when localGcOnly is true', async () => {
+      const blob = new Blob([new Uint8Array([1])])
+      remote.store.set('h', { blob, mime: 'x', size: 1, createdAt: 0 })
+      const localOnly = createCachingMediaAdapter({ remote, cache, localGcOnly: true })
+      await localOnly.forceDeleteFromRemote('h')
+      expect(remote.store.has('h')).toBe(false)
+    })
+  })
 })

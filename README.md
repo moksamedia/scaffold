@@ -73,6 +73,14 @@ A powerful hierarchical outline and note-taking application built with Vue 3 and
 - `npm run lint` - Run ESLint code checking
 - `npm run format` - Format code with Prettier
 
+### Cloud Storage Setup
+
+- For Google Cloud Storage with S3-compatible access (used by the media S3 adapter), see `GCS_S3_COMPAT_SETUP.md`.
+- For Cloudflare R2 setup, see `R2_S3_SETUP.md`.
+- For AWS S3 setup, see `AWS_S3_SETUP.md`.
+- For Backblaze B2 setup, see `B2_S3_SETUP.md`.
+- For MinIO (self-hosted) setup, see `MINIO_S3_SETUP.md`.
+
 ## Usage Guide
 
 ### Getting Started
@@ -202,6 +210,7 @@ A powerful hierarchical outline and note-taking application built with Vue 3 and
 - **Content-Addressable Media Store**: A pluggable `MediaStorageAdapter` keys uploads by SHA-256 hex of their bytes; identical media collapses to a single record across uploads, projects, devices, and JSON imports. Long-note HTML, version snapshots, and JSON exports reference media by hash via the `scaffold-media://<hash>` URL scheme — bytes are resolved to blob URLs only at render/edit time.
 - **Pluggable Storage Backends**: At app start, capability-based selection picks the best available media backend in priority order:
   1. **S3-compatible bucket** (Phase 4, opt-in) layered on top of OPFS or IndexedDB as a local read-through cache. Works with AWS S3, Cloudflare R2, MinIO, Backblaze B2, Wasabi, etc. Configure CORS on the bucket to allow GET/HEAD/PUT/DELETE from this origin. Credentials may be kept session-only or persisted with AES-GCM (PBKDF2-derived key).
+     - **Multi-device S3 sharing**: turn on the **Shared bucket** checkbox in the S3 settings to keep this device's automated GC from removing media that another device may still reference. Listing/usage stats then walk only the local cache, and `delete()` is suppressed for the shared bucket. When you delete a project locally, you'll be prompted with the count of media files this project uniquely references — opt in if you want to also evict them from S3, otherwise they stay for other devices.
   2. **User-picked folder** (Phase 3, opt-in, Chromium-only) via the File System Access API; the directory handle is persisted in IndexedDB and re-prompted for permission on the next user gesture.
   3. **Origin Private File System** (Phase 2) layered with IndexedDB as a fallback for legacy content.
   4. **IndexedDB** (Phase 1) as the universal default.

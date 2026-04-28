@@ -3,6 +3,7 @@ import { setActivePinia, createPinia } from 'pinia'
 import { useOutlineStore, DEFAULT_NEW_LIST_ITEM_TEXT } from 'src/stores/outline-store.js'
 import { makeProject, makeItem, makeDivider, makeLegacyProject } from './fixtures/projects.js'
 import { getStorageAdapter } from 'src/utils/storage/index.js'
+import { setMediaAdapter, resetMediaAdapter } from 'src/utils/media/index.js'
 
 const META_PREFIX = 'scaffold-meta-'
 
@@ -105,6 +106,230 @@ describe('Outline Store', () => {
       const result = store.selectProject('p2')
       expect(result).toBe(false)
       expect(store.projectLockBlockedProjectId).toBe('p2')
+    })
+  })
+
+  // ─── Orphan-media computation & shared-bucket delete prompt ───────
+  describe('findOrphanedMediaForProjectRemoval', () => {
+    function withLongNoteHashes(itemOverrides, hashes) {
+      return makeItem({
+        ...itemOverrides,
+        longNotes: hashes.map((h, i) => ({
+          id: `${itemOverrides.id || 'note'}-${i}`,
+          text: `<p>see <img src="scaffold-media://${h}" /></p>`,
+          collapsed: false,
+        })),
+      })
+    }
+
+    async function seedAndOpen(projectsArr) {
+      seedStore(projectsArr)
+      return getStore()
+    }
+
+    const HASH_A = 'a'.repeat(64)
+    const HASH_B = 'b'.repeat(64)
+    const HASH_C = 'c'.repeat(64)
+
+    it('returns hashes referenced only by the deleted project', async () => {
+      const targetProject = makeProject({
+        id: 'target',
+        lists: [withLongNoteHashes({ id: 'i1' }, [HASH_A])],
+      })
+      const otherProject = makeProject({ id: 'other', lists: [] })
+      const store = await seedAndOpen([targetProject, otherProject])
+
+      const orphans = await store.findOrphanedMediaForProjectRemoval('target')
+      expect(Array.from(orphans)).toEqual([HASH_A])
+    })
+
+    it('excludes hashes also referenced by another project', async () => {
+      const target = makeProject({
+        id: 'target',
+        lists: [withLongNoteHashes({ id: 'i1' }, [HASH_A, HASH_B])],
+      })
+      const other = makeProject({
+        id: 'other',
+        lists: [withLongNoteHashes({ id: 'i2' }, [HASH_B])],
+      })
+      const store = await seedAndOpen([target, other])
+
+      const orphans = await store.findOrphanedMediaForProjectRemoval('target')
+      expect(Array.from(orphans).sort()).toEqual([HASH_A])
+    })
+
+    it('excludes hashes only referenced by the deleted project version snapshot', async () => {
+      const target = makeProject({
+        id: 'target',
+        lists: [withLongNoteHashes({ id: 'i1' }, [HASH_A])],
+      })
+      const store = await seedAndOpen([target])
+
+      // Persist a version snapshot for `target` that references HASH_A.
+      const adapter = getStorageAdapter()
+      const versionPayload = {
+        id: 'v1',
+        projectId: 'target',
+        timestamp: 1700000000000,
+        data: {
+          formatVersion: '1.0',
+          projects: [
+            {
+              id: 'target',
+              name: 'target',
+              items: [
+                {
+                  id: 'i1',
+                  kind: 'item',
+                  text: 'x',
+                  longNotes: [
+                    {
+                      id: 'ln1',
+                      text: `<img src="scaffold-media://${HASH_A}" />`,
+                    },
+                  ],
+                  children: [],
+                },
+              ],
+            },
+          ],
+        },
+      }
+      await adapter.setMeta('scaffold-version-target-v1', JSON.stringify(versionPayload))
+
+      const orphans = await store.findOrphanedMediaForProjectRemoval('target')
+      // HASH_A is still held by the persisted version snapshot.
+      expect(orphans.size).toBe(0)
+    })
+
+    it("excludes hashes also referenced by another project's version snapshot", async () => {
+      const target = makeProject({
+        id: 'target',
+        lists: [withLongNoteHashes({ id: 'i1' }, [HASH_C])],
+      })
+      const other = makeProject({ id: 'other', lists: [] })
+      const store = await seedAndOpen([target, other])
+
+      const adapter = getStorageAdapter()
+      const versionPayload = {
+        id: 'v1',
+        projectId: 'other',
+        timestamp: 1700000000000,
+        data: {
+          formatVersion: '1.0',
+          projects: [
+            {
+              id: 'other',
+              name: 'other',
+              items: [
+                {
+                  id: 'oi',
+                  kind: 'item',
+                  text: 'x',
+                  longNotes: [
+                    {
+                      id: 'oln',
+                      text: `<img src="scaffold-media://${HASH_C}" />`,
+                    },
+                  ],
+                  children: [],
+                },
+              ],
+            },
+          ],
+        },
+      }
+      await adapter.setMeta('scaffold-version-other-v1', JSON.stringify(versionPayload))
+
+      const orphans = await store.findOrphanedMediaForProjectRemoval('target')
+      expect(orphans.size).toBe(0)
+    })
+
+    it('returns empty for unknown project ids', async () => {
+      const store = await seedAndOpen([makeProject({ id: 'p1' })])
+      const orphans = await store.findOrphanedMediaForProjectRemoval('does-not-exist')
+      expect(orphans.size).toBe(0)
+    })
+
+    it('deleteProject({ purgeRemoteMedia: true }) calls forceDeleteFromRemote for orphans only', async () => {
+      const target = makeProject({
+        id: 'target',
+        lists: [withLongNoteHashes({ id: 'i1' }, [HASH_A, HASH_B])],
+      })
+      const other = makeProject({
+        id: 'other',
+        lists: [withLongNoteHashes({ id: 'i2' }, [HASH_B])],
+      })
+      const store = await seedAndOpen([target, other])
+
+      const purged = []
+      const fakeMediaAdapter = {
+        has: async () => false,
+        get: async () => null,
+        put: async () => {},
+        delete: async () => {},
+        listHashes: async () => [],
+        getStats: async () => ({ count: 0, bytes: 0 }),
+        forceDeleteFromRemote: async (hash) => {
+          purged.push(hash)
+        },
+      }
+      setMediaAdapter(fakeMediaAdapter)
+
+      try {
+        await store.deleteProject('target', { purgeRemoteMedia: true })
+        expect(store.projects.find((p) => p.id === 'target')).toBeUndefined()
+        expect(purged.sort()).toEqual([HASH_A])
+      } finally {
+        resetMediaAdapter()
+      }
+    })
+
+    it('deleteProject without purgeRemoteMedia never touches forceDeleteFromRemote', async () => {
+      const target = makeProject({
+        id: 'target',
+        lists: [withLongNoteHashes({ id: 'i1' }, [HASH_A])],
+      })
+      const store = await seedAndOpen([target])
+
+      const purged = []
+      setMediaAdapter({
+        has: async () => false,
+        get: async () => null,
+        put: async () => {},
+        delete: async () => {},
+        listHashes: async () => [],
+        getStats: async () => ({ count: 0, bytes: 0 }),
+        forceDeleteFromRemote: async (hash) => {
+          purged.push(hash)
+        },
+      })
+
+      try {
+        await store.deleteProject('target')
+        expect(purged).toEqual([])
+      } finally {
+        resetMediaAdapter()
+      }
+    })
+
+    it('purgeRemoteMediaHashes is a no-op when the adapter lacks forceDeleteFromRemote', async () => {
+      const store = await seedAndOpen([makeProject({ id: 'p' })])
+      setMediaAdapter({
+        has: async () => false,
+        get: async () => null,
+        put: async () => {},
+        delete: async () => {},
+        listHashes: async () => [],
+        getStats: async () => ({ count: 0, bytes: 0 }),
+      })
+      try {
+        await expect(
+          store.purgeRemoteMediaHashes(['x'.repeat(64)]),
+        ).resolves.toBeUndefined()
+      } finally {
+        resetMediaAdapter()
+      }
     })
   })
 

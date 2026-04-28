@@ -27,6 +27,7 @@ import { getStorageAdapter } from 'src/utils/storage/index.js'
 import { getMediaAdapter, selectMediaAdapter } from 'src/utils/media/index.js'
 import { runMediaMigration } from 'src/utils/media/migration.js'
 import { runMediaGc } from 'src/utils/media/gc.js'
+import { collectProjectRefHashes } from 'src/utils/media/references.js'
 
 /** Placeholder text for newly created list items (cleared when user starts editing). */
 export const DEFAULT_NEW_LIST_ITEM_TEXT = 'New Item'
@@ -223,18 +224,112 @@ export const useOutlineStore = defineStore('outline', () => {
     return project
   }
 
-  function deleteProject(projectId) {
-    const index = projects.value.findIndex((p) => p.id === projectId)
-    if (index !== -1) {
-      removeProjectLock(projectId)
-      projects.value.splice(index, 1)
-      if (currentProjectId.value === projectId) {
-        currentProjectId.value = projects.value[0]?.id || null
+  /**
+   * Compute the set of media hashes referenced by `projectId` that
+   * would become orphaned if the project were removed right now —
+   * i.e. hashes referenced by the project but NOT in the residual
+   * live set (other projects + ALL persisted version snapshots,
+   * including the deleted project's own versions which are retained
+   * separately).
+   *
+   * Used by the project-deletion prompt for shared-bucket S3 setups
+   * to surface "this project uniquely references N media files"
+   * before issuing remote DELETEs.
+   *
+   * @param {string} projectId
+   * @returns {Promise<Set<string>>}
+   */
+  async function findOrphanedMediaForProjectRemoval(projectId) {
+    const target = projects.value.find((p) => p.id === projectId)
+    if (!target) return new Set()
+
+    const projectHashes = collectProjectRefHashes([target])
+    if (projectHashes.size === 0) return new Set()
+
+    const residualProjects = projects.value.filter((p) => p.id !== projectId)
+    const residualLive = new Set(collectProjectRefHashes(residualProjects))
+
+    try {
+      const adapter = getStorageAdapter()
+      const versionEntries = await adapter.getMetaEntries('scaffold-version-')
+      for (const entry of versionEntries) {
+        let parsed = null
+        try {
+          parsed = JSON.parse(entry.value)
+        } catch {
+          continue
+        }
+        const versionProjects = parsed?.data?.projects || []
+        for (const hash of collectProjectRefHashes(versionProjects)) {
+          residualLive.add(hash)
+        }
       }
-      syncProjectLockSession()
-      persistToStorage()
-      void triggerMediaGc('project-delete')
+    } catch (error) {
+      console.warn('Failed to walk version snapshots for orphan computation:', error)
     }
+
+    const orphans = new Set()
+    for (const hash of projectHashes) {
+      if (!residualLive.has(hash)) orphans.add(hash)
+    }
+    return orphans
+  }
+
+  /**
+   * Force-evict the supplied hashes from the active media backend's
+   * remote tier. No-op for backends that don't expose
+   * `forceDeleteFromRemote` (purely local IDB / OPFS / user-folder).
+   * Errors per hash are logged but don't abort the sweep.
+   *
+   * @param {Iterable<string>} hashes
+   */
+  async function purgeRemoteMediaHashes(hashes) {
+    const adapter = getMediaAdapter()
+    if (!adapter || typeof adapter.forceDeleteFromRemote !== 'function') return
+    for (const hash of hashes) {
+      try {
+        await adapter.forceDeleteFromRemote(hash)
+      } catch (error) {
+        console.warn(`forceDeleteFromRemote(${hash}) failed:`, error)
+      }
+    }
+  }
+
+  /**
+   * Delete a project locally. When `options.purgeRemoteMedia` is true,
+   * any media hashes referenced uniquely by this project (i.e. not
+   * held by another project or version snapshot) are force-evicted
+   * from the remote BEFORE the project is removed locally — otherwise
+   * the orphan computation would miss them.
+   *
+   * Async to accommodate the remote purge round-trips.
+   *
+   * @param {string} projectId
+   * @param {{ purgeRemoteMedia?: boolean }} [options]
+   */
+  async function deleteProject(projectId, options = {}) {
+    const index = projects.value.findIndex((p) => p.id === projectId)
+    if (index === -1) return
+
+    if (options.purgeRemoteMedia) {
+      try {
+        const orphans = await findOrphanedMediaForProjectRemoval(projectId)
+        if (orphans.size > 0) {
+          await purgeRemoteMediaHashes(orphans)
+        }
+      } catch (error) {
+        console.warn('Remote media purge failed; continuing with local delete:', error)
+      }
+    }
+
+    removeProjectLock(projectId)
+    projects.value.splice(index, 1)
+    if (currentProjectId.value === projectId) {
+      currentProjectId.value = projects.value[0]?.id || null
+    }
+    syncProjectLockSession()
+    persistToStorage()
+    void triggerMediaGc('project-delete')
   }
 
   function renameProject(projectId, newName) {
@@ -1923,6 +2018,8 @@ export const useOutlineStore = defineStore('outline', () => {
     initPromise,
     createProject,
     deleteProject,
+    findOrphanedMediaForProjectRemoval,
+    purgeRemoteMediaHashes,
     renameProject,
     selectProject,
     projectLockBlockedProjectId,

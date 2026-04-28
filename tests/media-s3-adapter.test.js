@@ -162,6 +162,36 @@ describe('createS3MediaAdapter', () => {
     ).rejects.toThrow(/403/)
   })
 
+  it('sharedBucket=true makes delete() a no-op (no fetch issued)', async () => {
+    const a = adapter({ sharedBucket: true })
+    await expect(a.delete('shared-hash')).resolves.toBeUndefined()
+    expect(calls).toHaveLength(0)
+  })
+
+  it('sharedBucket=true still allows forceDelete() to issue DELETE', async () => {
+    nextResponses = [makeResponse({ status: 204 })]
+    const a = adapter({ sharedBucket: true })
+    await a.forceDelete('shared-hash')
+    expect(calls).toHaveLength(1)
+    expect(calls[0].init.method).toBe('DELETE')
+    expect(calls[0].url).toBe(
+      'https://s3.us-east-1.amazonaws.com/scaffold-test/scaffold/media/shared-hash',
+    )
+  })
+
+  it('forceDelete treats 404 as success', async () => {
+    nextResponses = [makeResponse({ status: 404 })]
+    const a = adapter({ sharedBucket: true })
+    await expect(a.forceDelete('missing')).resolves.toBeUndefined()
+  })
+
+  it('sharedBucket=false (default) still issues real DELETEs', async () => {
+    nextResponses = [makeResponse({ status: 204 })]
+    await adapter().delete('h')
+    expect(calls).toHaveLength(1)
+    expect(calls[0].init.method).toBe('DELETE')
+  })
+
   it('skips objects whose keys do not start with the prefix in list parsing', () => {
     const xml = `<?xml version="1.0"?>
 <ListBucketResult>
