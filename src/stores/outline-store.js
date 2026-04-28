@@ -17,7 +17,7 @@ import {
   PROJECT_LOCK_HEARTBEAT_MS,
 } from 'src/utils/project-tab-lock.js'
 import { getStorageAdapter } from 'src/utils/storage/index.js'
-import { getMediaAdapter } from 'src/utils/media/index.js'
+import { getMediaAdapter, selectMediaAdapter } from 'src/utils/media/index.js'
 import { runMediaMigration } from 'src/utils/media/migration.js'
 import { runMediaGc } from 'src/utils/media/gc.js'
 
@@ -1801,6 +1801,18 @@ export const useOutlineStore = defineStore('outline', () => {
 
   const initPromise = loadFromStorage().then(async () => {
     registerProjectLockUnloadHandlers()
+
+    // Capability-based selection: prefer OPFS when the browser supports
+    // it, falling back to IndexedDB. Writes flow to whichever backend
+    // is selected; reads layer-fall-through so existing IDB content
+    // remains visible and migrates lazily into OPFS on first read.
+    // Tests that have already stubbed the adapter via setMediaAdapter
+    // can skip this safely (the stub remains, IDB path is a no-op).
+    try {
+      await selectMediaAdapter()
+    } catch (error) {
+      console.warn('Media adapter selection failed; using default:', error)
+    }
 
     // Migrate any pre-existing inline `data:` URIs in long-note HTML and
     // version snapshots into the content-addressable media store. The
