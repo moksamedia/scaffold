@@ -27,6 +27,7 @@ A powerful hierarchical outline and note-taking application built with Vue 3 and
 - **Context-Aware Shortcuts**: Intelligent keyboard handling that adapts to editing context
 - **Rich Text Editing**: Full-featured editor with lists, quotes, code blocks, links, and images
 - **Long Note Media Tools**: Insert image URLs, upload small images, and insert audio URLs in long notes
+- **Content-Addressable Media Store**: Uploaded images and audio are deduped by SHA-256 hash and stored once in IndexedDB; long-note HTML, version snapshots, and JSON exports carry only `scaffold-media://<hash>` references
 - **Storage Guardrails**: Warns on high browser storage usage and save failures (for example quota limits)
 - **GitHub Pages Deployment**: Deploy directly to GitHub Pages with automated CI/CD
 
@@ -197,9 +198,11 @@ A powerful hierarchical outline and note-taking application built with Vue 3 and
 
 ### Storage
 
-- **Local Storage**: All data persists automatically in browser
-- **Version History**: Per-project version tracking with duplicate detection
-- **Migration System**: Seamless updates preserve existing data
+- **IndexedDB Persistence**: Project data, version meta entries, and uploaded media all live in a single `scaffoldDb` IndexedDB database (schema v2: `projects`, `meta`, `media` object stores). The localStorage adapter remains available as a test backend.
+- **Content-Addressable Media Store**: A pluggable `MediaStorageAdapter` keys uploads by SHA-256 hex of their bytes; identical media collapses to a single record across uploads, projects, devices, and JSON imports. Long-note HTML, version snapshots, and JSON exports reference media by hash via the `scaffold-media://<hash>` URL scheme — bytes are resolved to blob URLs only at render/edit time.
+- **Automatic Migration**: On every load, any pre-existing inline `data:image/...` or `data:audio/...` URIs in long-note HTML (across both live projects and persisted version snapshots) are ingested into the media store and replaced with references. The migration is idempotent because IDs are content hashes.
+- **Mark-and-Sweep GC**: Unreferenced media is reclaimed in the background. The live set is computed from persisted projects + version meta entries, and a 24h grace window protects newly uploaded blobs that haven't yet been saved into a long note. GC also runs on project/long-note delete events.
+- **Version History**: Per-project version tracking with duplicate detection. After the migration, version snapshots are reference-only and stay tiny regardless of how much media a project contains.
 - **No Server Required**: Fully client-side application
 
 ### Deployment
@@ -225,10 +228,20 @@ src/
 ├── utils/               # Utility modules
 │   ├── export/              # Export functionality
 │   │   ├── markdown.js      # Markdown export
-│   │   ├── docx.js         # Word document export
-│   │   └── json.js         # JSON export/import
+│   │   ├── docx.js          # Word document export
+│   │   └── json.js          # JSON export/import (carries optional `media` payload)
+│   ├── media/               # Content-addressable media store
+│   │   ├── adapter.js       # MediaStorageAdapter interface
+│   │   ├── hash.js          # SHA-256 helpers
+│   │   ├── references.js    # `scaffold-media://<hash>` HTML scan/rewrite
+│   │   ├── ingest.js        # data URI / Blob → stored hash
+│   │   ├── resolver.js      # hash → cached blob URL
+│   │   ├── gc.js            # mark-and-sweep over projects + versions
+│   │   ├── migration.js     # idempotent data: → reference migration
+│   │   └── index.js         # singleton accessors (adapter, resolver)
 │   └── storage/             # Storage abstraction
-│       ├── storage-adapter.js  # Adapter interface (localStorage impl)
+│       ├── storage-adapter.js  # IndexedDB v2 + localStorage backends, including media methods
+│       ├── index.js         # Singleton accessor for the storage adapter
 │       └── migration.js     # localStorage→IndexedDB migration state machine
 ├── layouts/             # Application layouts
 └── pages/               # Route pages

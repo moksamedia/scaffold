@@ -57,26 +57,42 @@ Scaffold is a Quasar Vue 3 application for creating and managing hierarchical ou
 ### `/src/utils/export/`
 - `markdown.js` - Markdown export functionality with HTML to markdown conversion and blockquote handling
 - `docx.js` - DOCX export with dynamic nesting levels, Word styles, and paragraph structure preservation
-- `json.js` - JSON export/import with schema validation, conflict resolution, format versioning, root-entry `kind` persistence (`item`/`divider`), and optional embedded `projectVersions` payload (per-project version snapshots) controlled via `exportAsJSON(..., { versionsByProjectId })`. `importFromJSON` returns `{ projects, projectVersions, warnings }` with malformed version entries skipped (warnings) rather than failing the whole import.
+- `json.js` - JSON export/import with schema validation, conflict resolution, format versioning, root-entry `kind` persistence (`item`/`divider`), and optional embedded `projectVersions` payload (per-project version snapshots) controlled via `exportAsJSON(..., { versionsByProjectId })`. Also attaches an optional top-level `media` map of `<sha256>: { mime, size, base64 }` populated from the local media adapter (`attachMediaPayload`); `importFromJSON` is async, hydrates the media payload via `ingestMediaPayload`, and returns `{ projects, projectVersions, importedMediaCount, warnings }`. Legacy exports without `media` continue to import cleanly.
 
 ### `/src/utils/storage/`
-- `storage-adapter.js` - Async storage adapter interface with `createLocalStorageAdapter()` and `createIndexedDbAdapter()` implementations; IndexedDB schema: `scaffoldDb` v1 with `projects` and `meta` object stores
+- `storage-adapter.js` - Async storage adapter interface with `createLocalStorageAdapter()` and `createIndexedDbAdapter()` implementations. IndexedDB schema bumped to `scaffoldDb` v2: `projects`, `meta`, and `media` object stores (the `media` store is keyed by `hash` with a `lastUsedAt` index). Both adapters expose media methods: `putMedia`, `getMedia`, `hasMedia`, `deleteMedia`, `listMediaHashes`, `getMediaStats`. Bytes are stored as `ArrayBuffer` in IDB to be portable across real browsers and `fake-indexeddb`.
 - `index.js` - Singleton accessor (`getStorageAdapter()` / `setStorageAdapter()`) used by store and components
 - `migration.js` - State machine for localStorage → IndexedDB migration (not used at runtime; retained for reference)
 
+### `/src/utils/media/`
+- `adapter.js` - `MediaStorageAdapter` interface; `createMediaStorageAdapter(getStorageAdapter)` wraps the active storage adapter so the same code runs against IndexedDB now and against OPFS / user-folder / S3 backends in later phases.
+- `index.js` - Singleton accessors `getMediaAdapter()` / `setMediaAdapter()` and `getMediaResolver()` / `setMediaResolver()`, plus `resetMediaAdapter()` / `resetMediaResolver()` used by `tests/setup.js`.
+- `hash.js` - SHA-256 hex helpers (`sha256Hex`, `sha256HexFromString`, `isValidSha256Hex`).
+- `references.js` - The `scaffold-media://<hash>` URL scheme: `buildMediaRef`, `parseMediaRef`, `extractRefHashesFromHtml`, `collectProjectRefHashes`, plus HTML rewriters `rewriteDataUrisToRefs`, `rewriteRefsWith`, `normalizeHtmlToRefs`, and `transformLongNoteHtmlInPlace`. The protocol is intentionally not a real URL; the renderer/editor never lets it reach the network.
+- `ingest.js` - `ingestBlob`, `ingestDataUrl`, `dataUrlToBlob`, `blobToBase64`, `base64ToBlob`. Idempotent: same bytes ingested twice keeps the original `createdAt`.
+- `resolver.js` - `createMediaResolver(getAdapter)` caches one `URL.createObjectURL(blob)` per hash for the page lifetime, with `toObjectUrl`, `syncUrl`, `ensureMany`, and `dispose`.
+- `gc.js` - `runMediaGc({ now, graceMs })` performs mark-and-sweep over the live set built from persisted projects + version meta entries. The default 24h grace window protects newly uploaded blobs that haven't yet been saved into a long note. `collectLiveMediaHashes` is exported for tests.
+- `migration.js` - One-time, idempotent migration that ingests inline `data:image/...` and `data:audio/...` URIs from both projects and version snapshots and rewrites them to references. Triggered automatically from `outline-store.js`'s `initPromise`.
+
 ### `/tests/`
 - Test runner: Vitest with happy-dom environment
-- `tests/setup.js` - Global setup (storage clear, anchor click stub, localStorage adapter injection)
+- `tests/setup.js` - Global setup (storage clear, anchor click stub, localStorage adapter injection, media adapter/resolver reset, `URL.createObjectURL`/`revokeObjectURL` stubs for happy-dom)
 - `tests/fixtures/projects.js` - Canonical project/item/divider factory helpers
-- `tests/json-export-import.test.js` - JSON export/import validation, normalization, and roundtrip
+- `tests/json-export-import.test.js` - JSON export/import validation, normalization, roundtrip, and media payload round-trip
 - `tests/project-tab-lock.test.js` - Tab lock freshness, ownership, and edge cases
 - `tests/outline-store.test.js` - Pinia store integration: CRUD, outline ops, undo/redo, persistence, legacy migration
 - `tests/markdown-export.test.js` - Markdown generation: numbering, nesting, dividers, notes
 - `tests/docx-export.test.js` - DOCX generation structural smoke tests
-- `tests/version-storage.test.js` - Version serialization/parsing with LZ compression
+- `tests/version-storage.test.js` - Version serialization/parsing with LZ compression and the reference-only invariant for new version snapshots
 - `tests/version-smart-trim.test.js` - Smart trim retention bands and idempotency
-- `tests/storage-adapter.test.js` - Shared contract tests for both localStorage and IndexedDB adapters (uses fake-indexeddb)
+- `tests/storage-adapter.test.js` - Shared contract tests for both localStorage and IndexedDB adapters (uses fake-indexeddb), including the media interface
 - `tests/migration.test.js` - Migration state machine: success, idempotency, partial failure, corrupt data, retry
+- `tests/media-hash.test.js` - SHA-256 helpers and hash validation
+- `tests/media-references.test.js` - HTML scan/rewrite + project-tree walking for `scaffold-media://<hash>` references
+- `tests/media-ingest.test.js` - Data URI / Blob ingest, encode/decode roundtrip
+- `tests/media-resolver.test.js` - Cached blob URL resolution and disposal
+- `tests/media-gc.test.js` - Mark-and-sweep over projects + version meta entries with grace window
+- `tests/media-migration.test.js` - One-time `data:` URI → reference migration on projects and version snapshots
 
 ### Key Technical Patterns
 - Reactive Vue 3 Composition API throughout
@@ -144,6 +160,14 @@ Scaffold is a Quasar Vue 3 application for creating and managing hierarchical ou
   - Backspace/Delete adjacent to an embedded audio player removes it (with empty wrapper paragraph cleanup)
   - Custom `AudioPlayer.vue` component renders embedded audio in long-note previews with full styling control
   - `LongNoteRenderer.vue` parses long-note HTML into VNodes, swapping `<audio>` for `AudioPlayer` while preserving typography
+- Content-addressable media storage architecture (Phase 1):
+  - Long-note HTML carries `scaffold-media://<hash>` references instead of inline `data:` URIs; bytes are resolved to blob URLs only at render/edit time.
+  - Identical media collapses to a single record across uploads, projects, devices, and JSON imports (SHA-256 of raw bytes).
+  - `OutlineItem.vue` long-note dialog expands refs to blob URLs on open and collapses blob URLs / pasted data URIs back to refs on save (`expandRefsForEditor`, `collapseRefsForStorage`). Image and audio upload handlers ingest into the media adapter and insert markup tagged with `data-media-hash="<hash>"`.
+  - `LongNoteRenderer.vue` resolves refs through the global `MediaResolver` and re-renders when newly available URLs become resolved; falls back to a styled "media unavailable" placeholder when a hash can't be resolved.
+  - `outline-store.js` runs the data-URI migration on `initPromise`, exposes `mediaUsage` (count + bytes), and triggers `runMediaGc` on project/long-note delete and on a 10-minute idle timer (`startMediaGcTimer`).
+  - `SettingsDialog.vue` Project storage banner now sums per-project image/audio bytes by reading the media adapter for each unique referenced hash, instead of regex-scanning HTML for inline `data:` URIs.
+  - `json.js` adds the optional top-level `media` map on export (via `attachMediaPayload`) and hydrates it on import (via `ingestMediaPayload`); long-note HTML, version snapshots, and exported project payloads stay reference-only.
 - Storage safety guardrails:
   - High-storage-usage warning based on adapter usage/quota stats
   - User-facing save error when persistence fails (including quota overflow scenarios)
