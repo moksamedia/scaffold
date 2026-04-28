@@ -6,7 +6,8 @@ A powerful hierarchical outline and note-taking application built with Vue 3 and
 
 ### Core Functionality
 
-- **Multiple Projects**: Create and manage multiple independent outline projects
+- **Multiple Contexts (User-Like Profiles)**: Switch between fully isolated workspaces. Each context has its own projects, version history, program-wide settings, and media-backend configuration — like signing in as a different user, but everything stays local. Use the avatar dropdown in the header to switch, create, rename, or delete contexts. New contexts can either start fresh with default settings or be cloned from the active context (a one-shot fork that copies projects, version history, and configuration; future edits stay isolated). The architecture is future-auth-ready: every context carries optional `authProvider` and `externalSubject` fields so signed-in/OAuth users can plug in later without re-architecting the data model.
+- **Multiple Projects**: Create and manage multiple independent outline projects within a context
 - **Infinite Nesting**: Create hierarchical outlines with unlimited depth
 - **Flexible List Types**: Toggle between ordered (1, 2, 3) and unordered (•) lists at any level
 - **Root Divider Sections**: Insert root-only divider rows to split sections and restart ordered numbering
@@ -206,6 +207,8 @@ A powerful hierarchical outline and note-taking application built with Vue 3 and
 
 ### Storage
 
+- **Context-Scoped Persistence**: Every persisted value (projects blob, current-project pointer, font scale, program-wide settings, version snapshots, S3 config, user-folder marker) lives under a `ctx:<contextId>:` namespace in the meta store. A thin context-scoped adapter wraps the underlying storage adapter and transparently namespaces every read/write so the rest of the app can stay context-agnostic. The shared media bytes are intentionally NOT scoped (content-addressable hashes are identical across contexts) — but the live-set GC and shared-bucket S3 purge prompts walk the **union** of every context's references, so a hash that any context references is always preserved, while truly unreferenced blobs still get reclaimed.
+- **One-Time Migration**: On first launch after upgrading, any pre-context legacy keys (`outline-projects`, `current-project`, `font-scale`, `program-settings`, `media-s3-config`, `media-userfolder-handle`, and `scaffold-version-*`) are migrated into the canonical "Default" context's namespace. The migration is gated by the presence of the `scaffold-contexts` registry, so it runs at most once.
 - **IndexedDB Persistence**: Project data, version meta entries, and uploaded media all live in a single `scaffoldDb` IndexedDB database (schema v2: `projects`, `meta`, `media` object stores). The localStorage adapter remains available as a test backend.
 - **Content-Addressable Media Store**: A pluggable `MediaStorageAdapter` keys uploads by SHA-256 hex of their bytes; identical media collapses to a single record across uploads, projects, devices, and JSON imports. Long-note HTML, version snapshots, and JSON exports reference media by hash via the `scaffold-media://<hash>` URL scheme — bytes are resolved to blob URLs only at render/edit time.
 - **Pluggable Storage Backends**: At app start, capability-based selection picks the best available media backend in priority order:
@@ -219,7 +222,7 @@ A powerful hierarchical outline and note-taking application built with Vue 3 and
 - **Save Dialog**: JSON exports use `window.showSaveFilePicker` when available so users get a true file save dialog; falls back to the classic anchor-click download otherwise.
 - **`.scaffoldz` Bundle Format**: Optional zip bundle export carries `outline.json` (the same envelope as JSON exports, minus the inline media map) plus raw media bytes under `media/<sha256-hex>` with sidecar `.meta.json` files. Imports auto-detect bundles by extension (`.scaffoldz`, `.zip`) or by sniffing the PK\\003\\004 magic bytes, so users can drop either format into the import dialog without picking a mode.
 - **Automatic Migration**: On every load, any pre-existing inline `data:image/...` or `data:audio/...` URIs in long-note HTML (across both live projects and persisted version snapshots) are ingested into the media store and replaced with references. The migration is idempotent because IDs are content hashes.
-- **Mark-and-Sweep GC**: Unreferenced media is reclaimed in the background. The live set is computed from persisted projects + version meta entries, and a 24h grace window protects newly uploaded blobs that haven't yet been saved into a long note. GC also runs on project/long-note delete events.
+- **Mark-and-Sweep GC**: Unreferenced media is reclaimed in the background. The live set is the **union of every registered context's** persisted projects + version meta entries — never just the active context — so switching contexts and triggering GC will never delete media that another context still uses. A 24h grace window protects newly uploaded blobs that haven't yet been saved into a long note. GC also runs on project/long-note delete events.
 - **Version History**: Per-project version tracking with duplicate detection. After the migration, version snapshots are reference-only and stay tiny regardless of how much media a project contains.
 - **No Server Required**: Fully client-side application
 
@@ -240,10 +243,14 @@ src/
 │   ├── OutlineItem.vue      # Recursive outline item
 │   ├── ProjectsSidebar.vue  # Project management sidebar
 │   ├── SettingsDialog.vue   # Settings and version management
+│   ├── ContextSwitcher.vue  # Header dropdown for switching/creating/managing contexts
 │   └── MainLayout.vue       # Application layout
 ├── stores/              # Pinia stores
 │   └── outline-store.js     # Main application state
 ├── utils/               # Utility modules
+│   ├── context/             # User-like profiles ("contexts")
+│   │   ├── session.js       # Registry CRUD + active-context resolution
+│   │   └── migration.js     # One-time legacy → ctx:default: migration
 │   ├── export/              # Export functionality
 │   │   ├── markdown.js      # Markdown export
 │   │   ├── docx.js          # Word document export
@@ -256,7 +263,7 @@ src/
 │   │   ├── references.js    # `scaffold-media://<hash>` HTML scan/rewrite
 │   │   ├── ingest.js        # data URI / Blob → stored hash
 │   │   ├── resolver.js      # hash → cached blob URL
-│   │   ├── gc.js            # mark-and-sweep over projects + versions
+│   │   ├── gc.js            # mark-and-sweep over projects + versions across every context
 │   │   ├── migration.js     # idempotent data: → reference migration
 │   │   ├── opfs-adapter.js  # Phase 2: Origin Private File System adapter
 │   │   ├── userfolder-adapter.js  # Phase 3: showDirectoryPicker-backed adapter
@@ -268,7 +275,8 @@ src/
 │   │   └── index.js               # singleton accessors + capability-based selection
 │   └── storage/             # Storage abstraction
 │       ├── storage-adapter.js  # IndexedDB v2 + localStorage backends, including media methods
-│       ├── index.js         # Singleton accessor for the storage adapter
+│       ├── context-scoped.js   # Wrapper that namespaces meta keys under ctx:<id>:
+│       ├── index.js         # Singleton accessor for the storage adapter (scoped + base)
 │       └── migration.js     # localStorage→IndexedDB migration state machine
 ├── layouts/             # Application layouts
 └── pages/               # Route pages

@@ -14,9 +14,21 @@
  */
 
 import { createOpfsMediaAdapter } from './opfs-adapter.js'
-import { getStorageAdapter } from '../storage/index.js'
+import { getActiveContextId, getStorageAdapter } from '../storage/index.js'
 
+// Marker key written into the meta store. The wrapping
+// context-scoped adapter automatically prefixes this with
+// `ctx:<contextId>:`, so each context has its own marker.
 const HANDLE_META_KEY = 'media-userfolder-handle'
+
+// Key used inside the private `scaffoldHandles` IndexedDB to retrieve
+// the actual `FileSystemDirectoryHandle`. We include the active
+// context id so that each context's chosen folder handle stays
+// isolated from the others.
+function buildHandleStoreKey() {
+  const contextId = getActiveContextId() || 'default'
+  return `${HANDLE_META_KEY}:${contextId}`
+}
 
 export function isUserFolderApiAvailable() {
   if (typeof window === 'undefined') return false
@@ -40,6 +52,7 @@ export async function pickUserFolder() {
 
 async function persistUserFolderHandle(handle) {
   const storage = getStorageAdapter()
+  const storeKey = buildHandleStoreKey()
   // The IDB meta store accepts string values; the easiest way to keep
   // a handle there without changing the schema is to wrap it through
   // an out-of-band `setMeta` extension in the future. For now we go
@@ -49,12 +62,13 @@ async function persistUserFolderHandle(handle) {
       const tx = db.transaction('userfolder-handle', 'readwrite')
       tx.oncomplete = () => resolve()
       tx.onerror = () => reject(tx.error)
-      tx.objectStore('userfolder-handle').put({ key: HANDLE_META_KEY, handle })
+      tx.objectStore('userfolder-handle').put({ key: storeKey, handle })
     })
   })
   // Drop a marker in the regular meta store so other tabs/components
   // can detect that a user folder is configured without opening the
-  // private object store.
+  // private object store. The marker key is automatically scoped to
+  // the active context by the context-scoped storage adapter.
   await storage.setMeta(HANDLE_META_KEY, '1')
 }
 
@@ -68,11 +82,12 @@ export async function loadUserFolderHandle() {
   const storage = getStorageAdapter()
   const marker = await storage.getMeta(HANDLE_META_KEY)
   if (!marker) return null
+  const storeKey = buildHandleStoreKey()
   try {
     const db = await openHandleStore()
     return await new Promise((resolve, reject) => {
       const tx = db.transaction('userfolder-handle', 'readonly')
-      const req = tx.objectStore('userfolder-handle').get(HANDLE_META_KEY)
+      const req = tx.objectStore('userfolder-handle').get(storeKey)
       req.onsuccess = () => resolve(req.result?.handle || null)
       req.onerror = () => reject(req.error)
     })
@@ -84,13 +99,14 @@ export async function loadUserFolderHandle() {
 export async function clearUserFolderHandle() {
   const storage = getStorageAdapter()
   await storage.deleteMeta(HANDLE_META_KEY)
+  const storeKey = buildHandleStoreKey()
   try {
     const db = await openHandleStore()
     await new Promise((resolve, reject) => {
       const tx = db.transaction('userfolder-handle', 'readwrite')
       tx.oncomplete = () => resolve()
       tx.onerror = () => reject(tx.error)
-      tx.objectStore('userfolder-handle').delete(HANDLE_META_KEY)
+      tx.objectStore('userfolder-handle').delete(storeKey)
     })
   } catch {
     // best-effort: marker is already cleared, the handle row leaks at most

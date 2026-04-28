@@ -13,6 +13,7 @@
           <q-tooltip>Toggle Sidebar ({{ isMac ? 'Cmd' : 'Ctrl' }}+B)</q-tooltip>
         </q-btn>
         <q-toolbar-title>Scaffold</q-toolbar-title>
+        <ContextSwitcher class="q-mr-sm" />
         <q-btn
           flat
           dense
@@ -31,7 +32,7 @@
     <q-page-container>
       <router-view />
     </q-page-container>
-    
+
     <SettingsDialog v-model="showSettings" />
   </q-layout>
 </template>
@@ -40,6 +41,7 @@
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import ProjectsSidebar from 'components/ProjectsSidebar.vue'
 import SettingsDialog from 'components/SettingsDialog.vue'
+import ContextSwitcher from 'components/ContextSwitcher.vue'
 
 const sidebarRef = ref(null)
 const showSettings = ref(false)

@@ -23,14 +23,29 @@ import {
   isProjectLockedByOtherTab,
   PROJECT_LOCK_HEARTBEAT_MS,
 } from 'src/utils/project-tab-lock.js'
-import { getStorageAdapter } from 'src/utils/storage/index.js'
+import {
+  getStorageAdapter,
+  setActiveContextId,
+} from 'src/utils/storage/index.js'
 import { getMediaAdapter, selectMediaAdapter } from 'src/utils/media/index.js'
 import { runMediaMigration } from 'src/utils/media/migration.js'
-import { runMediaGc } from 'src/utils/media/gc.js'
+import {
+  collectLiveMediaHashesExcludingProject,
+  runMediaGc,
+} from 'src/utils/media/gc.js'
 import {
   collectProjectRefHashes,
   extractRefHashesFromHtml,
 } from 'src/utils/media/references.js'
+import {
+  createContext,
+  deleteContext,
+  loadContextRegistry,
+  renameContext,
+  resolveActiveContextId,
+  setStoredActiveContextId,
+} from 'src/utils/context/session.js'
+import { runContextMigration } from 'src/utils/context/migration.js'
 
 /** Placeholder text for newly created list items (cleared when user starts editing). */
 export const DEFAULT_NEW_LIST_ITEM_TEXT = 'New Item'
@@ -75,6 +90,24 @@ export const useOutlineStore = defineStore('outline', () => {
   let mediaGcTimer = null
   /** Idle GC frequency. Tests can stub setInterval to verify wiring. */
   const MEDIA_GC_INTERVAL_MS = 10 * 60 * 1000
+
+  /**
+   * Context state. Contexts are user-like profiles that fully isolate
+   * the app's persisted state (projects, version snapshots, program-
+   * wide settings, media-backend configuration). The active context
+   * id resolves the storage namespace used by the storage adapter.
+   */
+  const contexts = ref([])
+  const activeContextId = ref(null)
+  /** True while a context switch is in flight (UI shows a spinner). */
+  const switchingContext = ref(false)
+  /**
+   * Cleanup callbacks installed by `setupAutoVersioning`. We track
+   * them so a context switch can tear down the previous context's
+   * `beforeunload` handler / interval timer before installing the
+   * new context's auto-versioning configuration.
+   */
+  let _autoVersioningCleanup = []
 
   const currentProject = computed(() => {
     return projects.value.find((p) => p.id === currentProjectId.value)
@@ -231,9 +264,13 @@ export const useOutlineStore = defineStore('outline', () => {
    * Compute the set of media hashes referenced by `projectId` that
    * would become orphaned if the project were removed right now —
    * i.e. hashes referenced by the project but NOT in the residual
-   * live set (other projects + ALL persisted version snapshots,
-   * including the deleted project's own versions which are retained
-   * separately).
+   * live set, where "residual" means:
+   *   - every other project in EVERY context (cross-context safety:
+   *     a hash referenced by another context must never be evicted
+   *     from a shared S3 bucket), AND
+   *   - every persisted version snapshot in every context, including
+   *     the deleted project's own snapshots (those are retained
+   *     separately and the user might restore from them).
    *
    * Used by the project-deletion prompt for shared-bucket S3 setups
    * to surface "this project uniquely references N media files"
@@ -249,26 +286,20 @@ export const useOutlineStore = defineStore('outline', () => {
     const projectHashes = collectProjectRefHashes([target])
     if (projectHashes.size === 0) return new Set()
 
-    const residualProjects = projects.value.filter((p) => p.id !== projectId)
-    const residualLive = new Set(collectProjectRefHashes(residualProjects))
-
+    let residualLive
     try {
-      const adapter = getStorageAdapter()
-      const versionEntries = await adapter.getMetaEntries('scaffold-version-')
-      for (const entry of versionEntries) {
-        let parsed = null
-        try {
-          parsed = JSON.parse(entry.value)
-        } catch {
-          continue
-        }
-        const versionProjects = parsed?.data?.projects || []
-        for (const hash of collectProjectRefHashes(versionProjects)) {
-          residualLive.add(hash)
-        }
-      }
+      residualLive = await collectLiveMediaHashesExcludingProject(projectId)
     } catch (error) {
-      console.warn('Failed to walk version snapshots for orphan computation:', error)
+      console.warn(
+        'Failed to walk persisted contexts for orphan computation; ' +
+          'falling back to in-memory active-context state:',
+        error,
+      )
+      residualLive = new Set(
+        collectProjectRefHashes(
+          projects.value.filter((p) => p.id !== projectId),
+        ),
+      )
     }
 
     const orphans = new Set()
@@ -1675,6 +1706,24 @@ export const useOutlineStore = defineStore('outline', () => {
     })()
   }
 
+  /**
+   * Awaitable version of `persistToStorage` used by call sites that
+   * must guarantee the on-disk state is current before reading it
+   * back (e.g. cloning the active context's data into a new
+   * context). Mirrors the writes performed by `persistToStorage` but
+   * lets the caller observe completion + propagates errors instead
+   * of stuffing them into `storageSaveError`.
+   */
+  async function flushPersistence() {
+    const adapter = getStorageAdapter()
+    const projectsSnapshot = JSON.parse(JSON.stringify(projects.value))
+    const currentProjectSnapshot = currentProjectId.value || ''
+    const fontScaleSnapshot = fontScale.value.toString()
+    await adapter.saveProjects(projectsSnapshot)
+    await adapter.setMeta('current-project', currentProjectSnapshot)
+    await adapter.setMeta('font-scale', fontScaleSnapshot)
+  }
+
   function createExampleProject() {
     const project = {
       id: generateId(),
@@ -2050,6 +2099,174 @@ export const useOutlineStore = defineStore('outline', () => {
     window.addEventListener('pagehide', release)
   }
 
+  /**
+   * Reset the in-memory store state to the empty defaults. Used by
+   * `switchContext` to ensure the new context starts from a clean
+   * slate before its data is hydrated from storage. The defaults
+   * mirror those declared at the top of the setup function.
+   */
+  function resetStoreStateForSwitch() {
+    teardownAutoVersioning()
+    stopProjectLockHeartbeat()
+    releaseCurrentProjectLockForUnload()
+
+    projects.value = []
+    currentProjectId.value = null
+    fontSize.value = 14
+    fontScale.value = 100
+    indentSize.value = 32
+    defaultListType.value = 'ordered'
+    showIndentGuides.value = true
+    tibetanFontFamily.value = 'Microsoft Himalaya'
+    tibetanFontSize.value = 20
+    tibetanFontColor.value = '#000000'
+    nonTibetanFontFamily.value = 'Aptos, sans-serif'
+    nonTibetanFontSize.value = 16
+    nonTibetanFontColor.value = '#000000'
+    undoStack.value = []
+    redoStack.value = []
+    currentlyEditingId.value = null
+    longNoteEditorActive.value = false
+    storageSaveError.value = null
+    storageUsageWarning.value = null
+    storageUsageRatio.value = 0
+    projectLockBlockedProjectId.value = null
+    mediaUsage.value = { count: 0, bytes: 0 }
+  }
+
+  /**
+   * Refresh the in-memory `contexts` registry from storage. Used by
+   * the UI after create/rename/delete operations.
+   */
+  async function refreshContextRegistry() {
+    try {
+      contexts.value = await loadContextRegistry()
+    } catch (error) {
+      console.warn('Failed to refresh context registry:', error)
+    }
+    return contexts.value
+  }
+
+  /**
+   * Switch the active context. Persists the choice, drops the
+   * outline store's in-memory state, swaps the storage adapter's
+   * scope, and rehydrates from the new context's data. Ignores the
+   * call when the requested context is already active.
+   *
+   * @param {string} id - Target context id
+   * @returns {Promise<boolean>} True when the switch happened.
+   */
+  async function switchContext(id) {
+    if (!id) return false
+    if (id === activeContextId.value) return false
+
+    // Flip the in-flight flag synchronously (before any await) so UI
+    // observers see the spinner the instant the switch starts.
+    switchingContext.value = true
+    storeReady.value = false
+    try {
+      const registry = await loadContextRegistry()
+      if (!registry.some((c) => c.id === id)) {
+        console.warn(`switchContext: unknown context id "${id}"`)
+        return false
+      }
+
+      resetStoreStateForSwitch()
+
+      setActiveContextId(id)
+      activeContextId.value = id
+      try {
+        await setStoredActiveContextId(id)
+      } catch (error) {
+        console.warn('Failed to persist active context id:', error)
+      }
+
+      contexts.value = registry
+
+      await loadFromStorage()
+      await hydrateActiveContext()
+      return true
+    } finally {
+      switchingContext.value = false
+    }
+  }
+
+  /**
+   * Create a new context, optionally switching into it immediately.
+   *
+   * By default the new context starts blank: hydration will spin up
+   * the example project just like a first-launch user.
+   *
+   * Pass `cloneFromCurrent: true` to copy every persisted meta entry
+   * (projects, version snapshots, program settings, font scale,
+   * S3-config marker, etc.) from the active context into the new
+   * one. Media bytes are content-addressable and remain shared, so
+   * cloning is cheap. The active context's in-memory state is
+   * flushed to storage first to make sure unsaved edits aren't lost
+   * along the way.
+   *
+   * @param {string} name
+   * @param {{ activate?: boolean, cloneFromCurrent?: boolean }} [options]
+   */
+  async function createNewContext(name, options = {}) {
+    let cloneFromId = null
+    if (options.cloneFromCurrent && activeContextId.value) {
+      cloneFromId = activeContextId.value
+      try {
+        await flushPersistence()
+      } catch (error) {
+        console.warn(
+          'Failed to flush persistence before cloning context; ' +
+            'continuing with last persisted snapshot:',
+          error,
+        )
+      }
+    }
+    const ctx = await createContext(name, { cloneFromId })
+    contexts.value = await loadContextRegistry()
+    if (options.activate !== false) {
+      await switchContext(ctx.id)
+    }
+    return ctx
+  }
+
+  /**
+   * Rename an existing context.
+   *
+   * @param {string} id
+   * @param {string} name
+   */
+  async function renameContextById(id, name) {
+    const updated = await renameContext(id, name)
+    contexts.value = await loadContextRegistry()
+    return updated
+  }
+
+  /**
+   * Delete a context. Refuses when it would empty the registry. When
+   * the deleted context is currently active, switches to the first
+   * remaining context first so the UI never lands in a context-less
+   * state.
+   *
+   * @param {string} id
+   * @returns {Promise<{ deleted: boolean, reason?: string }>}
+   */
+  async function deleteContextById(id) {
+    const registry = await loadContextRegistry()
+    if (registry.length <= 1) {
+      return { deleted: false, reason: 'last-context' }
+    }
+    if (id === activeContextId.value) {
+      const fallback = registry.find((c) => c.id !== id)
+      if (fallback) {
+        await switchContext(fallback.id)
+      }
+    }
+    const result = await deleteContext(id)
+    contexts.value = await loadContextRegistry()
+    return result
+  }
+
   async function saveVersion(name = null, trigger = 'manual') {
     if (!currentProject.value) return
     
@@ -2158,34 +2375,103 @@ export const useOutlineStore = defineStore('outline', () => {
     return null
   }
 
+  function teardownAutoVersioning() {
+    for (const cleanup of _autoVersioningCleanup) {
+      try {
+        cleanup()
+      } catch (error) {
+        console.warn('Auto-versioning teardown error:', error)
+      }
+    }
+    _autoVersioningCleanup = []
+  }
+
   async function setupAutoVersioning() {
+    teardownAutoVersioning()
+
     const adapter = getStorageAdapter()
     const raw = await adapter.getMeta('program-settings')
     if (!raw) return
-    
-    const programSettings = JSON.parse(raw)
-    
+
+    let programSettings
+    try {
+      programSettings = JSON.parse(raw)
+    } catch {
+      return
+    }
+
     if (programSettings.autoVersioning?.includes('close')) {
-      window.addEventListener('beforeunload', () => {
+      const handler = () => {
         if (currentProject.value) {
           saveVersion(null, 'auto-close')
         }
-      })
+      }
+      window.addEventListener('beforeunload', handler)
+      _autoVersioningCleanup.push(() =>
+        window.removeEventListener('beforeunload', handler),
+      )
     }
-    
+
     if (programSettings.autoVersioning?.includes('interval')) {
       const intervalMinutes = programSettings.versioningInterval || 10
-      setInterval(() => {
+      const timerId = setInterval(() => {
         if (currentProject.value) {
           saveVersion(null, 'auto-interval')
         }
       }, intervalMinutes * 60 * 1000)
+      _autoVersioningCleanup.push(() => clearInterval(timerId))
     }
   }
 
-  const initPromise = loadFromStorage().then(async () => {
-    registerProjectLockUnloadHandlers()
+  /**
+   * Bring the context layer to a known state and pin the active
+   * context id on the storage adapter. Runs the legacy → context
+   * migration the first time, resolves which context should be
+   * active, and refreshes the in-memory `contexts` registry. Idempotent
+   * across reloads (the migration's gating registry prevents re-runs).
+   */
+  async function initContexts() {
+    try {
+      await runContextMigration()
+    } catch (error) {
+      console.warn('Context migration failed:', error)
+    }
 
+    let activeId = null
+    try {
+      activeId = await resolveActiveContextId()
+    } catch (error) {
+      console.warn('Failed to resolve active context id:', error)
+    }
+
+    if (activeId) {
+      setActiveContextId(activeId)
+      activeContextId.value = activeId
+      try {
+        await setStoredActiveContextId(activeId)
+      } catch (error) {
+        console.warn('Failed to persist active context id:', error)
+      }
+    } else {
+      setActiveContextId(null)
+      activeContextId.value = null
+    }
+
+    try {
+      contexts.value = await loadContextRegistry()
+    } catch (error) {
+      console.warn('Failed to load context registry:', error)
+      contexts.value = []
+    }
+  }
+
+  /**
+   * Hydrate everything that depends on the active context: media
+   * backend selection, the data: URI media migration, project hydration,
+   * the GC timer, and auto-versioning. Pulled into a function because
+   * `switchContext` runs the same sequence after the active id changes.
+   */
+  async function hydrateActiveContext() {
     // Capability-based selection: prefer OPFS when the browser supports
     // it, falling back to IndexedDB. Writes flow to whichever backend
     // is selected; reads layer-fall-through so existing IDB content
@@ -2216,12 +2502,26 @@ export const useOutlineStore = defineStore('outline', () => {
 
     const raw = await getStorageAdapter().getMeta('program-settings')
     if (raw) {
-      const programSettings = JSON.parse(raw)
-      if (programSettings.autoVersioning?.includes('start') && currentProject.value) {
-        await saveVersion(null, 'auto-start')
+      try {
+        const programSettings = JSON.parse(raw)
+        if (
+          programSettings.autoVersioning?.includes('start') &&
+          currentProject.value
+        ) {
+          await saveVersion(null, 'auto-start')
+        }
+      } catch (error) {
+        console.warn('Failed to parse program-settings during init:', error)
       }
     }
-  })
+  }
+
+  const initPromise = (async () => {
+    await initContexts()
+    await loadFromStorage()
+    registerProjectLockUnloadHandlers()
+    await hydrateActiveContext()
+  })()
 
   return {
     projects,
@@ -2317,5 +2617,13 @@ export const useOutlineStore = defineStore('outline', () => {
     clearHistory,
     saveVersion,
     restoreVersion,
+    contexts,
+    activeContextId,
+    switchingContext,
+    refreshContextRegistry,
+    switchContext,
+    createNewContext,
+    renameContextById,
+    deleteContextById,
   }
 })

@@ -22,11 +22,21 @@
  * {@link createS3MediaAdapter}.
  */
 
-import { getStorageAdapter } from '../storage/index.js'
+import { getActiveContextId, getStorageAdapter } from '../storage/index.js'
 
 const META_KEY = 'media-s3-config'
 const PBKDF2_ITERATIONS = 200_000
 const S3_UNLOCK_PASSPHRASE_KEY = 'media-s3-unlock-passphrase'
+
+// The remembered S3 unlock passphrase lives in localStorage (it must
+// survive the page reload that triggers a re-unlock). Namespacing
+// the localStorage key by the active context id keeps each context's
+// passphrase separate, so signing into context B can't accidentally
+// decrypt context A's S3 vault.
+function buildPassphraseStorageKey() {
+  const contextId = getActiveContextId() || 'default'
+  return `${S3_UNLOCK_PASSPHRASE_KEY}:${contextId}`
+}
 
 /**
  * @typedef {Object} S3PublicConfig
@@ -222,7 +232,7 @@ export function lockS3Config() {
  */
 export function rememberS3UnlockPassphrase(passphrase) {
   if (!passphrase || typeof localStorage === 'undefined') return
-  localStorage.setItem(S3_UNLOCK_PASSPHRASE_KEY, passphrase)
+  localStorage.setItem(buildPassphraseStorageKey(), passphrase)
 }
 
 /**
@@ -232,13 +242,13 @@ export function rememberS3UnlockPassphrase(passphrase) {
  */
 export function getRememberedS3UnlockPassphrase() {
   if (typeof localStorage === 'undefined') return ''
-  return localStorage.getItem(S3_UNLOCK_PASSPHRASE_KEY) || ''
+  return localStorage.getItem(buildPassphraseStorageKey()) || ''
 }
 
 /** Remove any remembered unlock passphrase from localStorage. */
 export function clearRememberedS3UnlockPassphrase() {
   if (typeof localStorage === 'undefined') return
-  localStorage.removeItem(S3_UNLOCK_PASSPHRASE_KEY)
+  localStorage.removeItem(buildPassphraseStorageKey())
 }
 
 /**

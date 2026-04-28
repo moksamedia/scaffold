@@ -1,5 +1,5 @@
 <template>
-  <div v-if="!storeReady" class="fullscreen row justify-center items-center">
+  <div v-if="!storeReady || switchingContext" class="fullscreen row justify-center items-center">
     <q-spinner size="48px" color="primary" />
   </div>
   <router-view v-else />
@@ -11,7 +11,7 @@ import { useOutlineStore } from 'stores/outline-store'
 import { storeToRefs } from 'pinia'
 
 const store = useOutlineStore()
-const { longNoteEditorActive, storeReady } = storeToRefs(store)
+const { longNoteEditorActive, storeReady, switchingContext } = storeToRefs(store)
 
 function handleKeyDown(event) {
   if (longNoteEditorActive.value) {

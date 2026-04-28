@@ -1,5 +1,5 @@
 import { beforeEach, vi } from 'vitest'
-import { setStorageAdapter } from 'src/utils/storage/index.js'
+import { setActiveContextId, setStorageAdapter } from 'src/utils/storage/index.js'
 import { createLocalStorageAdapter } from 'src/utils/storage/storage-adapter.js'
 import { resetMediaAdapter, resetMediaResolver } from 'src/utils/media/index.js'
 
@@ -7,6 +7,9 @@ beforeEach(() => {
   localStorage.clear()
   sessionStorage.clear()
   setStorageAdapter(createLocalStorageAdapter())
+  // setStorageAdapter already clears _activeContextId, but be explicit
+  // so tests that import storage state aren't affected by a stale id.
+  setActiveContextId(null)
   resetMediaAdapter()
   resetMediaResolver()
 })

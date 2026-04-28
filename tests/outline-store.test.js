@@ -1402,22 +1402,26 @@ describe('Outline Store', () => {
     })
 
     it('auto-start versioning creates a version when configured', async () => {
-      const adapter = getStorageAdapter()
-      await adapter.setMeta(
+      // We deliberately re-fetch the adapter AFTER store init so we
+      // see the context-scoped wrapper (the pre-init adapter
+      // reference points at the unscoped base, which is stale once
+      // the store hydrates and pins the active context).
+      await getStorageAdapter().setMeta(
         'program-settings',
         JSON.stringify({ autoVersioning: ['start'] }),
       )
       seedStore([makeProject({ id: 'p1' })])
-      const store = await getStore()
+      await getStore()
 
-      const entries = await adapter.getMetaEntries('scaffold-version-p1-')
+      const entries = await getStorageAdapter().getMetaEntries(
+        'scaffold-version-p1-',
+      )
       expect(entries.length).toBeGreaterThanOrEqual(1)
     })
 
     it('auto-close and interval versioning paths execute without error', async () => {
       vi.useFakeTimers()
-      const adapter = getStorageAdapter()
-      await adapter.setMeta(
+      await getStorageAdapter().setMeta(
         'program-settings',
         JSON.stringify({ autoVersioning: ['close', 'interval'], versioningInterval: 0.001 }),
       )
@@ -1427,7 +1431,9 @@ describe('Outline Store', () => {
       window.dispatchEvent(new Event('beforeunload'))
       await vi.advanceTimersByTimeAsync(1000)
 
-      const entries = await adapter.getMetaEntries('scaffold-version-p1-')
+      const entries = await getStorageAdapter().getMetaEntries(
+        'scaffold-version-p1-',
+      )
       expect(entries.length).toBeGreaterThanOrEqual(1)
       vi.useRealTimers()
     })
