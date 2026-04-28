@@ -242,7 +242,7 @@ export async function downloadJSON(data, filename = 'outline') {
   URL.revokeObjectURL(url)
 }
 
-function getFilenameTimestamp(date = new Date()) {
+export function getFilenameTimestamp(date = new Date()) {
   const pad = (value) => String(value).padStart(2, '0')
   const year = date.getFullYear()
   const month = pad(date.getMonth() + 1)

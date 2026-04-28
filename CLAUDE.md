@@ -57,7 +57,9 @@ Scaffold is a Quasar Vue 3 application for creating and managing hierarchical ou
 ### `/src/utils/export/`
 - `markdown.js` - Markdown export functionality with HTML to markdown conversion and blockquote handling
 - `docx.js` - DOCX export with dynamic nesting levels, Word styles, and paragraph structure preservation
-- `json.js` - JSON export/import with schema validation, conflict resolution, format versioning, root-entry `kind` persistence (`item`/`divider`), and optional embedded `projectVersions` payload (per-project version snapshots) controlled via `exportAsJSON(..., { versionsByProjectId })`. Also attaches an optional top-level `media` map of `<sha256>: { mime, size, base64 }` populated from the local media adapter (`attachMediaPayload`); `importFromJSON` is async, hydrates the media payload via `ingestMediaPayload`, and returns `{ projects, projectVersions, importedMediaCount, warnings }`. Legacy exports without `media` continue to import cleanly.
+- `json.js` - JSON export/import with schema validation, conflict resolution, format versioning, root-entry `kind` persistence (`item`/`divider`), and optional embedded `projectVersions` payload (per-project version snapshots) controlled via `exportAsJSON(..., { versionsByProjectId })`. Also attaches an optional top-level `media` map of `<sha256>: { mime, size, base64 }` populated from the local media adapter (`attachMediaPayload`); `importFromJSON` is async, hydrates the media payload via `ingestMediaPayload`, and returns `{ projects, projectVersions, importedMediaCount, warnings }`. Legacy exports without `media` continue to import cleanly. The `downloadJSON` helper uses `window.showSaveFilePicker` when available and falls back to anchor-click download.
+- `zip.js` - Self-contained STORED-only ZIP reader/writer (CRC32 + PKZIP central directory layout). No DEFLATE — media is already compressed and JSON is small enough that compression doesn't justify the extra dependency. Outputs are interoperable with system zip tools.
+- `scaffoldz.js` - `.scaffoldz` bundle format. `buildScaffoldzBundle(...)` writes `outline.json` plus `media/<hash>` + `media/<hash>.meta.json` entries; the inline `media` base64 map is dropped because bundle entries already carry the bytes. `importScaffoldzBundle(bytes)` ingests media into the local adapter and reuses the regular `importFromJSON` pipeline. `isZipMagic(bytes)` lets callers auto-detect bundles via the PK\\003\\004 sniff. `downloadScaffoldzBundle` mirrors `downloadJSON` (Save dialog + anchor-click fallback).
 
 ### `/src/utils/storage/`
 - `storage-adapter.js` - Async storage adapter interface with `createLocalStorageAdapter()` and `createIndexedDbAdapter()` implementations. IndexedDB schema bumped to `scaffoldDb` v2: `projects`, `meta`, and `media` object stores (the `media` store is keyed by `hash` with a `lastUsedAt` index). Both adapters expose media methods: `putMedia`, `getMedia`, `hasMedia`, `deleteMedia`, `listMediaHashes`, `getMediaStats`. Bytes are stored as `ArrayBuffer` in IDB to be portable across real browsers and `fake-indexeddb`.
@@ -107,6 +109,8 @@ Scaffold is a Quasar Vue 3 application for creating and managing hierarchical ou
 - `tests/media-s3-adapter.test.js` - S3 adapter HEAD/GET/PUT/DELETE/LIST against a mock fetch, including ListObjectsV2 pagination
 - `tests/media-cached-adapter.test.js` - Read-through cache semantics: cache hits, lazy promotion, write-through to remote
 - `tests/media-s3-config.test.js` - S3 credential persistence: session-mode in-memory only, persisted-mode AES-GCM/PBKDF2 round-trip, lock/clear semantics
+- `tests/zip.test.js` - STORED-only ZIP encoder/decoder round-trips, CRC32, magic numbers, UTF-8 paths
+- `tests/scaffoldz-bundle.test.js` - `.scaffoldz` bundle round-trip: media files + outline.json layout, magic-byte detection, re-ingestion on import
 - `tests/fixtures/in-memory-opfs.js` - In-memory `FileSystemDirectoryHandle` stub for OPFS-style tests
 
 ### Key Technical Patterns
@@ -190,6 +194,7 @@ Scaffold is a Quasar Vue 3 application for creating and managing hierarchical ou
   - Phase 3 — JSON exports use `window.showSaveFilePicker` when supported (true Save dialog), with the anchor-click download as a fallback.
   - Phase 4 — S3-compatible adapter (`s3-adapter.js`) with self-contained SigV4 signing (`sigv4.js`), CORS-friendly HEAD/GET/PUT/DELETE, paginated ListObjectsV2 for `listHashes` / `getStats`. Wrapped by `cached-adapter.js` so writes go to S3 first (durability) and reads check the local cache first (speed + offline-tolerant).
   - Phase 4 — Credential persistence (`s3-config.js`): `'session'` keeps the secret in memory only; `'persisted'` encrypts the secret with AES-GCM using a PBKDF2-derived key from a user passphrase. The Settings dialog gates the locked vault behind a passphrase prompt before the adapter activates.
+  - Phase 5 — `.scaffoldz` bundle export/import (`zip.js`, `scaffoldz.js`). Same data shape as JSON exports but media bytes are stored as separate `media/<hash>` files in a STORED-only zip, avoiding base64 inflation. `OutlineEditor.vue` and `ProjectsSidebar.vue` expose a format radio (`json` vs `scaffoldz`) in their export dialogs; the import handler auto-detects the format via extension or magic bytes.
   - Store wiring: `outline-store.js` exposes `mediaBackend` (active backend label) and `reselectMediaBackend()` so the Settings UI can hot-swap backends after the user changes config.
 - Storage safety guardrails:
   - High-storage-usage warning based on adapter usage/quota stats

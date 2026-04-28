@@ -206,6 +206,7 @@ A powerful hierarchical outline and note-taking application built with Vue 3 and
   3. **Origin Private File System** (Phase 2) layered with IndexedDB as a fallback for legacy content.
   4. **IndexedDB** (Phase 1) as the universal default.
 - **Save Dialog**: JSON exports use `window.showSaveFilePicker` when available so users get a true file save dialog; falls back to the classic anchor-click download otherwise.
+- **`.scaffoldz` Bundle Format**: Optional zip bundle export carries `outline.json` (the same envelope as JSON exports, minus the inline media map) plus raw media bytes under `media/<sha256-hex>` with sidecar `.meta.json` files. Imports auto-detect bundles by extension (`.scaffoldz`, `.zip`) or by sniffing the PK\\003\\004 magic bytes, so users can drop either format into the import dialog without picking a mode.
 - **Automatic Migration**: On every load, any pre-existing inline `data:image/...` or `data:audio/...` URIs in long-note HTML (across both live projects and persisted version snapshots) are ingested into the media store and replaced with references. The migration is idempotent because IDs are content hashes.
 - **Mark-and-Sweep GC**: Unreferenced media is reclaimed in the background. The live set is computed from persisted projects + version meta entries, and a 24h grace window protects newly uploaded blobs that haven't yet been saved into a long note. GC also runs on project/long-note delete events.
 - **Version History**: Per-project version tracking with duplicate detection. After the migration, version snapshots are reference-only and stay tiny regardless of how much media a project contains.
@@ -235,7 +236,9 @@ src/
 │   ├── export/              # Export functionality
 │   │   ├── markdown.js      # Markdown export
 │   │   ├── docx.js          # Word document export
-│   │   └── json.js          # JSON export/import (carries optional `media` payload)
+│   │   ├── json.js          # JSON export/import (carries optional `media` payload)
+│   │   ├── zip.js           # STORED-only ZIP reader/writer (CRC32 + PKZIP layout)
+│   │   └── scaffoldz.js     # `.scaffoldz` bundle export/import (zip with separate media files)
 │   ├── media/               # Content-addressable media store
 │   │   ├── adapter.js       # MediaStorageAdapter interface (IndexedDB-backed)
 │   │   ├── hash.js          # SHA-256 helpers

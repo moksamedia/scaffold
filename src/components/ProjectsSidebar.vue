@@ -228,6 +228,23 @@
         </q-card-section>
 
         <q-card-section>
+          <q-option-group
+            v-model="exportAllFormat"
+            :options="exportAllFormatOptions"
+            type="radio"
+          />
+          <div class="text-caption text-grey-8 q-mt-xs">
+            <span v-if="exportAllFormat === 'json'">
+              Single JSON file with media base64-encoded inline.
+            </span>
+            <span v-else>
+              Zip bundle (.scaffoldz) with media stored as separate files.
+              Smaller for media-heavy backups.
+            </span>
+          </div>
+        </q-card-section>
+
+        <q-card-section>
           <q-checkbox
             v-model="includeVersionHistoryOnExportAll"
             label="Include version history"
@@ -273,6 +290,11 @@ const editingProjectId = ref(null)
 const editingProjectName = ref('')
 const showExportAllDialog = ref(false)
 const includeVersionHistoryOnExportAll = ref(false)
+const exportAllFormat = ref('json')
+const exportAllFormatOptions = [
+  { label: 'JSON file (.json)', value: 'json' },
+  { label: 'Bundle with media (.scaffoldz)', value: 'scaffoldz' },
+]
 
 /** Bumped on cross-tab lock storage changes so lock state re-evaluates in template. */
 const lockTick = ref(0)
@@ -449,6 +471,7 @@ function openExportAllDialog() {
     return
   }
   includeVersionHistoryOnExportAll.value = false
+  exportAllFormat.value = 'json'
   showExportAllDialog.value = true
 }
 
@@ -457,6 +480,7 @@ async function confirmExportAllProjects() {
   try {
     await store.exportAllAsJSON({
       includeVersionHistory: includeVersionHistoryOnExportAll.value,
+      format: exportAllFormat.value,
     })
   } catch (error) {
     $q.notify({

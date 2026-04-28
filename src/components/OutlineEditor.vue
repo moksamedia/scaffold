@@ -139,7 +139,24 @@
     <q-dialog v-model="showJsonExportDialog">
       <q-card style="min-width: 380px">
         <q-card-section>
-          <div class="text-h6">Export as JSON</div>
+          <div class="text-h6">Export project</div>
+        </q-card-section>
+
+        <q-card-section>
+          <q-option-group
+            v-model="exportFormat"
+            :options="exportFormatOptions"
+            type="radio"
+          />
+          <div class="text-caption text-grey-8 q-mt-xs">
+            <span v-if="exportFormat === 'json'">
+              Single JSON file with media base64-encoded inline.
+            </span>
+            <span v-else>
+              Zip bundle (.scaffoldz) with media stored as separate files.
+              Smaller for projects with images and audio.
+            </span>
+          </div>
         </q-card-section>
 
         <q-card-section>
@@ -199,6 +216,11 @@ const versionName = ref('')
 // JSON export options dialog
 const showJsonExportDialog = ref(false)
 const includeVersionHistoryOnExport = ref(false)
+const exportFormat = ref('json')
+const exportFormatOptions = [
+  { label: 'JSON file (.json)', value: 'json' },
+  { label: 'Bundle with media (.scaffoldz)', value: 'scaffoldz' },
+]
 
 function addRootItem() {
   store.addRootListItem()
@@ -230,13 +252,17 @@ function exportAsDocx() {
 
 function openJsonExportDialog() {
   includeVersionHistoryOnExport.value = false
+  exportFormat.value = 'json'
   showJsonExportDialog.value = true
 }
 
 async function confirmExportAsJSON() {
   showJsonExportDialog.value = false
   try {
-    await store.exportAsJSON({ includeVersionHistory: includeVersionHistoryOnExport.value })
+    await store.exportAsJSON({
+      includeVersionHistory: includeVersionHistoryOnExport.value,
+      format: exportFormat.value,
+    })
   } catch (error) {
     $q.notify({
       type: 'negative',

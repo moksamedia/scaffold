@@ -7,8 +7,15 @@ import {
   exportAsJSON,
   exportSingleProjectAsJSON, 
   exportAllProjectsAsJSON,
-  importFromJSON 
+  importFromJSON,
+  getFilenameTimestamp,
 } from 'src/utils/export/json.js'
+import {
+  buildScaffoldzBundle,
+  downloadScaffoldzBundle,
+  importScaffoldzBundle,
+  isZipMagic,
+} from 'src/utils/export/scaffoldz.js'
 import {
   getTabInstanceId,
   writeProjectLock,
@@ -923,6 +930,16 @@ export const useOutlineStore = defineStore('outline', () => {
         currentProject.value.id,
       ])
     }
+    if (options.format === 'scaffoldz') {
+      const bytes = await buildScaffoldzBundle(
+        [currentProject.value],
+        currentProject.value.id,
+        exportOptions,
+      )
+      const filename = `${currentProject.value.name}_outline_${getFilenameTimestamp()}`
+      await downloadScaffoldzBundle(bytes, filename)
+      return
+    }
     await exportSingleProjectAsJSON(currentProject.value, exportOptions)
   }
 
@@ -932,6 +949,12 @@ export const useOutlineStore = defineStore('outline', () => {
       exportOptions.versionsByProjectId = await gatherVersionsByProjectId(
         projects.value.map((p) => p.id),
       )
+    }
+    if (options.format === 'scaffoldz') {
+      const bytes = await buildScaffoldzBundle(projects.value, null, exportOptions)
+      const filename = `outline_maker_backup_${getFilenameTimestamp()}`
+      await downloadScaffoldzBundle(bytes, filename)
+      return
     }
     await exportAllProjectsAsJSON(projects.value, exportOptions)
   }
@@ -1002,7 +1025,7 @@ export const useOutlineStore = defineStore('outline', () => {
     return new Promise((resolve, reject) => {
       const input = document.createElement('input')
       input.type = 'file'
-      input.accept = '.json'
+      input.accept = '.json,.scaffoldz,.zip'
       input.onchange = async (event) => {
         const file = event.target.files[0]
         if (!file) {
@@ -1011,9 +1034,33 @@ export const useOutlineStore = defineStore('outline', () => {
         }
 
         try {
-          const text = await file.text()
-          const jsonData = JSON.parse(text)
-          const importResult = await importFromJSON(jsonData)
+          // Auto-detect bundle vs plain JSON: prefer extension when
+          // it's unambiguous, otherwise sniff the magic bytes. We
+          // probe arrayBuffer first because real File objects support
+          // it; tests using plain stubs may expose only `text()`, so
+          // we fall back gracefully.
+          const lowerName = (file.name || '').toLowerCase()
+          const bundleByExt =
+            lowerName.endsWith('.scaffoldz') || lowerName.endsWith('.zip')
+
+          let importResult
+          if (bundleByExt && typeof file.arrayBuffer === 'function') {
+            const bytes = new Uint8Array(await file.arrayBuffer())
+            importResult = await importScaffoldzBundle(bytes)
+          } else if (typeof file.arrayBuffer === 'function') {
+            const bytes = new Uint8Array(await file.arrayBuffer())
+            if (isZipMagic(bytes)) {
+              importResult = await importScaffoldzBundle(bytes)
+            } else {
+              const text = new TextDecoder().decode(bytes)
+              const jsonData = JSON.parse(text)
+              importResult = await importFromJSON(jsonData)
+            }
+          } else {
+            const text = await file.text()
+            const jsonData = JSON.parse(text)
+            importResult = await importFromJSON(jsonData)
+          }
           const warnings = [...(importResult.warnings || [])]
 
           // Track original-id → final-id so version-history meta keys can be remapped.
