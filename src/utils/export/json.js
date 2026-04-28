@@ -37,9 +37,22 @@
  *         "data": { ...embedded scaffold export envelope for the snapshot... }
  *       }
  *     ]
+ *   },
+ *   // Optional: present only when the export contains long-note media
+ *   // (uploaded images / audio). Long-note HTML stores
+ *   // `scaffold-media://<hash>` references; the actual bytes live here.
+ *   // Keyed by SHA-256 hex of the raw bytes, so duplicate media used
+ *   // across projects, notes, or versions is stored exactly once.
+ *   "media": {
+ *     "<sha256-hex>": { "mime": "image/png", "size": 12345, "base64": "..." }
  *   }
  * }
  */
+
+import { collectProjectRefHashes } from '../media/references.js'
+import { blobToBase64, base64ToBlob } from '../media/ingest.js'
+import { getMediaAdapter } from '../media/index.js'
+import { isValidSha256Hex } from '../media/hash.js'
 
 /**
  * @typedef {Object} ExportOptions
@@ -287,6 +300,13 @@ export function validateImportData(data) {
     }
   }
 
+  // Validate optional media map structure (object keyed by sha256 hash)
+  if (data.media !== undefined && data.media !== null) {
+    if (typeof data.media !== 'object' || Array.isArray(data.media)) {
+      errors.push('media must be an object keyed by sha256 hash')
+    }
+  }
+
   return {
     valid: errors.length === 0,
     errors,
@@ -314,15 +334,21 @@ function generateWarnings(data) {
   return warnings
 }
 
-export function importFromJSON(jsonData) {
+export async function importFromJSON(jsonData) {
   const validation = validateImportData(jsonData)
-  
+
   if (!validation.valid) {
     throw new Error(`Import validation failed: ${validation.errors.join(', ')}`)
   }
 
   const warnings = [...validation.warnings]
   const projectVersions = {}
+
+  // Hydrate referenced media bytes into the local media store *before* the
+  // projects/versions are returned, so resolution at render time finds them.
+  // No-op when the import contains no `media` field (legacy backups).
+  const mediaSummary = await ingestMediaPayload(jsonData)
+  warnings.push(...mediaSummary.warnings)
 
   if (jsonData.projectVersions && typeof jsonData.projectVersions === 'object') {
     for (const [projectId, versions] of Object.entries(jsonData.projectVersions)) {
@@ -377,6 +403,7 @@ export function importFromJSON(jsonData) {
       lists: normalizeImportedItems(project.items || [])
     })),
     projectVersions,
+    importedMediaCount: mediaSummary.imported,
     warnings,
   }
 }
@@ -392,21 +419,120 @@ function describeVersionImportIssue(version) {
   return null
 }
 
+/**
+ * Walk an export envelope and gather every `scaffold-media://<hash>` referenced
+ * either by the projects themselves or by any embedded version snapshot's
+ * project payloads. Used to figure out which media bytes to attach.
+ *
+ * @param {object} exportData
+ * @returns {Set<string>}
+ */
+export function collectExportRefHashes(exportData) {
+  const set = new Set()
+  for (const hash of collectProjectRefHashes(exportData?.projects || [])) {
+    set.add(hash)
+  }
+  if (exportData?.projectVersions && typeof exportData.projectVersions === 'object') {
+    for (const versions of Object.values(exportData.projectVersions)) {
+      if (!Array.isArray(versions)) continue
+      for (const version of versions) {
+        const projects = version?.data?.projects || []
+        for (const hash of collectProjectRefHashes(projects)) {
+          set.add(hash)
+        }
+      }
+    }
+  }
+  return set
+}
+
+/**
+ * Attach a `media` map to an export envelope, populated from the local media
+ * adapter. Idempotent and safe to call when no refs are present (no-op).
+ *
+ * @param {object} exportData
+ * @param {() => import('../media/adapter.js').MediaStorageAdapter} [adapterAccessor]
+ * @returns {Promise<object>} the same exportData mutated in place
+ */
+export async function attachMediaPayload(exportData, adapterAccessor = getMediaAdapter) {
+  const refs = collectExportRefHashes(exportData)
+  if (refs.size === 0) return exportData
+
+  const adapter = adapterAccessor()
+  const media = {}
+  for (const hash of refs) {
+    if (!isValidSha256Hex(hash)) continue
+    const row = await adapter.get(hash)
+    if (!row || !row.blob) continue
+    media[hash] = {
+      mime: row.mime || row.blob.type || 'application/octet-stream',
+      size: typeof row.size === 'number' ? row.size : row.blob.size || 0,
+      base64: await blobToBase64(row.blob),
+    }
+  }
+  if (Object.keys(media).length > 0) {
+    exportData.media = media
+  }
+  return exportData
+}
+
+/**
+ * Hydrate the local media adapter with bytes carried inside an import
+ * envelope's `media` map. Idempotent (content-addressable IDs make
+ * duplicate puts no-ops).
+ *
+ * @param {object} jsonData
+ * @param {() => import('../media/adapter.js').MediaStorageAdapter} [adapterAccessor]
+ * @returns {Promise<{imported: number, skipped: number, warnings: string[]}>}
+ */
+export async function ingestMediaPayload(jsonData, adapterAccessor = getMediaAdapter) {
+  const summary = { imported: 0, skipped: 0, warnings: [] }
+  const map = jsonData?.media
+  if (!map || typeof map !== 'object' || Array.isArray(map)) return summary
+
+  const adapter = adapterAccessor()
+  for (const [hash, entry] of Object.entries(map)) {
+    if (!isValidSha256Hex(hash)) {
+      summary.skipped += 1
+      summary.warnings.push(`Skipped media entry with invalid hash: ${String(hash).slice(0, 16)}`)
+      continue
+    }
+    if (!entry || typeof entry.base64 !== 'string') {
+      summary.skipped += 1
+      summary.warnings.push(`Skipped media entry ${hash.slice(0, 8)}: missing base64 payload`)
+      continue
+    }
+    try {
+      const blob = base64ToBlob(entry.base64, entry.mime || 'application/octet-stream')
+      await adapter.put(hash, blob, entry.mime || blob.type)
+      summary.imported += 1
+    } catch (error) {
+      summary.skipped += 1
+      summary.warnings.push(
+        `Failed to ingest media ${hash.slice(0, 8)}: ${error?.message || error}`,
+      )
+    }
+  }
+  return summary
+}
+
 // Utility function to export single project
-export function exportSingleProjectAsJSON(project, options = {}) {
+export async function exportSingleProjectAsJSON(project, options = {}) {
   if (!project) return null
 
   const exportData = exportAsJSON([project], project.id, options)
+  await attachMediaPayload(exportData)
   const filename = `${project.name}_outline_${getFilenameTimestamp()}`
 
   downloadJSON(exportData, filename)
 }
 
 // Utility function to export all projects
-export function exportAllProjectsAsJSON(projects, options = {}) {
+export async function exportAllProjectsAsJSON(projects, options = {}) {
   if (!projects || projects.length === 0) return null
 
   const exportData = exportAsJSON(projects, null, options)
+  await attachMediaPayload(exportData)
   const filename = `outline_maker_backup_${getFilenameTimestamp()}`
 
   downloadJSON(exportData, filename)

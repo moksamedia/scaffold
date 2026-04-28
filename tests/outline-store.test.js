@@ -854,9 +854,9 @@ describe('Outline Store', () => {
 
     it('restoreVersion returns null for invalid payloads', async () => {
       const store = await getStore()
-      expect(store.restoreVersion(null)).toBeNull()
-      expect(store.restoreVersion({})).toBeNull()
-      expect(store.restoreVersion({ data: { invalid: true } })).toBeNull()
+      expect(await store.restoreVersion(null)).toBeNull()
+      expect(await store.restoreVersion({})).toBeNull()
+      expect(await store.restoreVersion({ data: { invalid: true } })).toBeNull()
     })
 
     it('auto-start versioning creates a version when configured', async () => {

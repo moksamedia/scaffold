@@ -1,7 +1,13 @@
 <script>
-import { defineComponent, h } from 'vue'
+import { defineComponent, h, ref, watch } from 'vue'
 import AudioPlayer from './AudioPlayer.vue'
 import { splitScriptRuns } from 'src/utils/text/script-runs'
+import { getMediaResolver } from 'src/utils/media/index.js'
+import {
+  extractRefHashesFromHtml,
+  isMediaRef,
+  parseMediaRef,
+} from 'src/utils/media/references.js'
 
 const SKIPPED_TAGS = new Set(['script', 'style', 'iframe', 'object', 'embed'])
 
@@ -54,6 +60,27 @@ function renderTextNode(text, getRunStyle) {
   )
 }
 
+function resolveSrc(rawSrc, ctx) {
+  if (!isMediaRef(rawSrc)) return rawSrc
+  const hash = parseMediaRef(rawSrc)
+  if (!hash) return rawSrc
+  const resolved = ctx.resolver?.syncUrl(hash)
+  return resolved || ''
+}
+
+function renderMissingMedia(kind) {
+  const label = kind === 'audio' ? 'Audio unavailable' : 'Image unavailable'
+  return h(
+    'span',
+    {
+      class: 'long-note-media-missing',
+      title: 'Media reference could not be resolved.',
+      'aria-label': label,
+    },
+    label,
+  )
+}
+
 function renderNode(node, ctx, keyPath = '0') {
   if (!node) return null
 
@@ -71,9 +98,21 @@ function renderNode(node, ctx, keyPath = '0') {
   if (isEditorOnlyAudioControl) return null
 
   if (tag === 'audio') {
-    const src = node.getAttribute('src') || ''
-    if (!src) return null
-    return h(AudioPlayer, { key: `audio-${keyPath}-${src.slice(0, 32)}`, src })
+    const rawSrc = node.getAttribute('src') || ''
+    if (!rawSrc) return null
+    const resolved = resolveSrc(rawSrc, ctx)
+    if (!resolved) return renderMissingMedia('audio')
+    return h(AudioPlayer, { key: `audio-${keyPath}-${resolved.slice(0, 32)}`, src: resolved })
+  }
+
+  if (tag === 'img') {
+    const rawSrc = node.getAttribute('src') || ''
+    if (!rawSrc) return null
+    const resolved = resolveSrc(rawSrc, ctx)
+    if (!resolved) return renderMissingMedia('image')
+    const attrs = buildAttrs(node)
+    attrs.src = resolved
+    return h('img', { key: `img-${keyPath}-${resolved.slice(0, 32)}`, ...attrs })
   }
 
   const outTag = TAG_REMAP[tag] || tag
@@ -116,10 +155,32 @@ export default defineComponent({
     },
   },
   setup(props) {
+    // Resolution version bumps every time the resolver finishes loading
+    // a referenced hash; this drives a re-render so newly-available blob
+    // URLs appear without flicker.
+    const resolutionVersion = ref(0)
+
+    watch(
+      () => props.html,
+      async (html) => {
+        const hashes = extractRefHashesFromHtml(html)
+        if (hashes.length === 0) return
+        const resolver = getMediaResolver()
+        await resolver.ensureMany(hashes)
+        resolutionVersion.value++
+      },
+      { immediate: true },
+    )
+
     return () => {
+      // Touch the version ref so re-renders happen when refs resolve.
+      void resolutionVersion.value
       const doc = new DOMParser().parseFromString(props.html || '', 'text/html')
       const body = doc.body
-      const ctx = { getRunStyle: props.getRunStyle }
+      const ctx = {
+        getRunStyle: props.getRunStyle,
+        resolver: getMediaResolver(),
+      }
       const children = Array.from(body.childNodes)
         .map((node, idx) => renderNode(node, ctx, String(idx)))
         .filter((v) => v != null)
@@ -133,5 +194,16 @@ export default defineComponent({
 <style scoped>
 .long-note-render-root {
   width: 100%;
+}
+
+.long-note-render-root :deep(.long-note-media-missing) {
+  display: inline-block;
+  padding: 4px 10px;
+  margin: 4px 0;
+  border-radius: 4px;
+  background: #fff7ed;
+  border: 1px dashed #fbbf24;
+  color: #92400e;
+  font-size: 0.85em;
 }
 </style>

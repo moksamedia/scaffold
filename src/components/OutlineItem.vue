@@ -366,6 +366,13 @@ import { useOutlineStore, DEFAULT_NEW_LIST_ITEM_TEXT } from 'stores/outline-stor
 import { storeToRefs } from 'pinia'
 import { splitScriptRuns } from 'src/utils/text/script-runs'
 import LongNoteRenderer from './LongNoteRenderer.vue'
+import { ingestBlob, ingestDataUrl } from 'src/utils/media/ingest.js'
+import { getMediaResolver } from 'src/utils/media/index.js'
+import {
+  buildMediaRef,
+  normalizeHtmlToRefs,
+  rewriteRefsWith,
+} from 'src/utils/media/references.js'
 
 const props = defineProps({
   item: {
@@ -630,6 +637,28 @@ async function deleteShortNote(noteId) {
   store.deleteNote(props.item.id, noteId, 'short')
 }
 
+async function expandRefsForEditor(html) {
+  if (!html || typeof html !== 'string') return html || ''
+  const resolver = getMediaResolver()
+  const hashes = []
+  for (const m of html.matchAll(/scaffold-media:\/\/([0-9a-f]{64})/g)) {
+    hashes.push(m[1])
+  }
+  if (hashes.length > 0) {
+    await resolver.ensureMany(hashes)
+  }
+  return rewriteRefsWith(html, (hash) => resolver.syncUrl(hash) || null, {
+    tagWithHash: true,
+  })
+}
+
+async function collapseRefsForStorage(html) {
+  return normalizeHtmlToRefs(html, async (dataUrl) => {
+    const { hash } = await ingestDataUrl(dataUrl)
+    return hash
+  })
+}
+
 function addLongNote() {
   if (isDivider.value) return
   editingNote.value = null
@@ -637,19 +666,21 @@ function addLongNote() {
   showLongNoteDialog.value = true
 }
 
-function editLongNote(note) {
+async function editLongNote(note) {
   editingNote.value = note
-  noteText.value = note.text
+  noteText.value = await expandRefsForEditor(note.text || '')
   showLongNoteDialog.value = true
 }
 
-function saveLongNote() {
-  if (noteText.value.trim()) {
+async function saveLongNote() {
+  const trimmed = noteText.value.trim()
+  if (trimmed) {
+    const normalized = (await collapseRefsForStorage(trimmed)).trim()
     if (editingNote.value) {
-      store.updateNote(props.item.id, editingNote.value.id, 'long', noteText.value.trim())
+      store.updateNote(props.item.id, editingNote.value.id, 'long', normalized)
     } else {
-      const newNoteId = store.addLongNote(props.item.id, noteText.value.trim())
-      // Update editingNote so subsequent saves update instead of creating new
+      const newNoteId = store.addLongNote(props.item.id, normalized)
+      // Track the new note so subsequent saves update instead of creating
       if (newNoteId) {
         editingNote.value = props.item.longNotes.find((n) => n.id === newNoteId)
       }
@@ -659,23 +690,22 @@ function saveLongNote() {
   closeLongNoteDialog()
 }
 
-function autosaveLongNote() {
+async function autosaveLongNote() {
   if (!noteText.value.trim() || !showLongNoteDialog.value) return
 
   isAutosaving.value = true
 
+  const normalized = (await collapseRefsForStorage(noteText.value.trim())).trim()
+
   if (editingNote.value) {
-    store.updateNote(props.item.id, editingNote.value.id, 'long', noteText.value.trim())
+    store.updateNote(props.item.id, editingNote.value.id, 'long', normalized)
   } else {
-    // For new notes, create and track them
-    const newNoteId = store.addLongNote(props.item.id, noteText.value.trim())
-    // Find the newly created note from the item's longNotes array
+    const newNoteId = store.addLongNote(props.item.id, normalized)
     editingNote.value = props.item.longNotes.find((n) => n.id === newNoteId)
   }
 
   lastAutosaved.value = new Date()
 
-  // Clear autosaving indicator after a short delay
   setTimeout(() => {
     isAutosaving.value = false
   }, 500)
@@ -790,11 +820,20 @@ function promptInsertImageUrl() {
   })
 }
 
+async function ingestUploadedFile(file, mime) {
+  const blob = file instanceof Blob ? file : null
+  if (!blob) throw new Error('Invalid upload')
+  const { hash } = await ingestBlob(blob, mime || file.type)
+  const resolver = getMediaResolver()
+  const blobUrl = await resolver.toObjectUrl(hash)
+  return { hash, blobUrl: blobUrl || buildMediaRef(hash) }
+}
+
 function promptInsertAudioUpload() {
   const input = document.createElement('input')
   input.type = 'file'
   input.accept = 'audio/*'
-  input.onchange = () => {
+  input.onchange = async () => {
     const file = input.files?.[0]
     if (!file) return
 
@@ -807,23 +846,20 @@ function promptInsertAudioUpload() {
       return
     }
 
-    const reader = new FileReader()
-    reader.onload = () => {
-      const dataUrl = typeof reader.result === 'string' ? reader.result : ''
-      if (!dataUrl) return
+    try {
+      const { hash, blobUrl } = await ingestUploadedFile(file, file.type || 'audio/mpeg')
       insertHtmlAtCursor(
-        `<p class="embedded-audio-row"><audio controls src="${escapeAttribute(dataUrl)}">` +
+        `<p class="embedded-audio-row"><audio controls src="${escapeAttribute(blobUrl)}" data-media-hash="${hash}">` +
           'Your browser does not support the audio element.' +
           '</audio><button type="button" class="remove-embedded-audio-btn" data-remove-audio="true" contenteditable="false" title="Remove audio" aria-label="Remove audio">✕</button></p>',
       )
-    }
-    reader.onerror = () => {
+    } catch (err) {
+      console.error('Audio upload failed:', err)
       $q.notify({
         type: 'negative',
         message: 'Could not read the selected audio file.',
       })
     }
-    reader.readAsDataURL(file)
   }
   input.click()
 }
@@ -832,7 +868,7 @@ function promptInsertImageUpload() {
   const input = document.createElement('input')
   input.type = 'file'
   input.accept = 'image/*'
-  input.onchange = () => {
+  input.onchange = async () => {
     const file = input.files?.[0]
     if (!file) return
 
@@ -845,21 +881,18 @@ function promptInsertImageUpload() {
       return
     }
 
-    const reader = new FileReader()
-    reader.onload = () => {
-      const dataUrl = typeof reader.result === 'string' ? reader.result : ''
-      if (!dataUrl) return
+    try {
+      const { hash, blobUrl } = await ingestUploadedFile(file, file.type || 'image/png')
       insertHtmlAtCursor(
-        `<p><img src="${escapeAttribute(dataUrl)}" alt="${escapeAttribute(file.name)}" /></p>`,
+        `<p><img src="${escapeAttribute(blobUrl)}" alt="${escapeAttribute(file.name)}" data-media-hash="${hash}" /></p>`,
       )
-    }
-    reader.onerror = () => {
+    } catch (err) {
+      console.error('Image upload failed:', err)
       $q.notify({
         type: 'negative',
         message: 'Could not read the selected image file.',
       })
     }
-    reader.readAsDataURL(file)
   }
   input.click()
 }
@@ -1068,9 +1101,9 @@ function getRunStyle(scriptType) {
 }
 
 function stripHtml(text) {
-  const tmp = document.createElement('div')
-  tmp.innerHTML = text
-  return tmp.textContent || tmp.innerText || ''
+  if (typeof text !== 'string' || !text) return ''
+  const doc = new DOMParser().parseFromString(text, 'text/html')
+  return doc.body?.textContent || ''
 }
 
 function handleEditorKeydown(event) {
@@ -1113,27 +1146,18 @@ function stripLineBreaks() {
   if (selectedText) {
     // If there's a selection, replace it with cleaned version
     const cleanedText = selectedText
-      .replace(/\r\n|\r|\n/g, ' ') // Replace line breaks with space
-      .replace(/<br\s*\/?>/gi, ' ') // Replace HTML breaks
-      .replace(/\s+/g, ' ') // Replace multiple spaces with single space
-      .trim() // Remove leading/trailing whitespace
-    
-    // Use the editor's built-in method to replace selection
+      .replace(/\r\n|\r|\n/g, ' ')
+      .replace(/<br\s*\/?>/gi, ' ')
+      .replace(/\s+/g, ' ')
+      .trim()
     document.execCommand('insertText', false, cleanedText)
   } else {
-    // If no selection, clean the entire content
-    // Create a temporary div to parse HTML
-    const temp = document.createElement('div')
-    temp.innerHTML = currentHtml
-    
-    // Get text content and clean it
-    const textContent = temp.innerText || temp.textContent || ''
+    // No selection: parse the editor HTML safely and rewrite as one paragraph.
+    const textContent = stripHtml(currentHtml)
     const cleanedText = textContent
-      .replace(/\r\n|\r|\n/g, ' ') // Replace line breaks with space
-      .replace(/\s+/g, ' ') // Replace multiple spaces with single space
-      .trim() // Remove leading/trailing whitespace
-    
-    // Update the editor content
+      .replace(/\r\n|\r|\n/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim()
     noteText.value = `<p>${cleanedText}</p>`
   }
 }

@@ -440,6 +440,8 @@ import { useOutlineStore } from 'stores/outline-store'
 import { storeToRefs } from 'pinia'
 import { useQuasar } from 'quasar'
 import { getStorageAdapter } from 'src/utils/storage/index.js'
+import { getMediaAdapter } from 'src/utils/media/index.js'
+import { extractRefHashesFromHtml } from 'src/utils/media/references.js'
 
 const props = defineProps({
   modelValue: {
@@ -516,6 +518,8 @@ const fontSizeOptions = Array.from({ length: 37 }, (_, i) => {
   return { label: `${size}px`, value: size }
 })
 
+const projectMediaUsage = ref({ imageBytes: 0, audioBytes: 0 })
+
 const projectStorageUsage = computed(() => {
   if (!currentProject.value) {
     return {
@@ -526,48 +530,83 @@ const projectStorageUsage = computed(() => {
     }
   }
 
-  const totalBytes = getUtf8Bytes(JSON.stringify(currentProject.value))
-  const media = collectMediaStorageUsage(currentProject.value.lists || [])
+  // Project metadata size (text, settings, structure) reported separately
+  // from media. The media bytes come from the content-addressable media
+  // adapter, which excludes the bulk that used to inflate this number
+  // when long-note HTML carried inline data: URIs.
+  const totalBytes =
+    getUtf8Bytes(JSON.stringify(currentProject.value)) +
+    projectMediaUsage.value.imageBytes +
+    projectMediaUsage.value.audioBytes
 
   return {
     totalBytes,
-    mediaBytes: media.imageBytes + media.audioBytes,
-    imageBytes: media.imageBytes,
-    audioBytes: media.audioBytes,
+    mediaBytes: projectMediaUsage.value.imageBytes + projectMediaUsage.value.audioBytes,
+    imageBytes: projectMediaUsage.value.imageBytes,
+    audioBytes: projectMediaUsage.value.audioBytes,
   }
 })
 
-function collectMediaStorageUsage(items) {
-  const usage = { imageBytes: 0, audioBytes: 0 }
-  const dataSrcRegex = /src\s*=\s*["'](data:(image|audio)\/[^"']+)["']/gi
-
-  function walk(nodes) {
-    nodes.forEach((node) => {
-      if (Array.isArray(node.longNotes)) {
-        node.longNotes.forEach((note) => {
-          if (typeof note?.text !== 'string') return
-
-          for (const match of note.text.matchAll(dataSrcRegex)) {
-            const dataUrl = match[1] || ''
-            const kind = match[2]
-            const bytes = getUtf8Bytes(dataUrl)
-            if (kind === 'image') {
-              usage.imageBytes += bytes
-            } else if (kind === 'audio') {
-              usage.audioBytes += bytes
-            }
-          }
-        })
-      }
-
-      if (Array.isArray(node.children) && node.children.length > 0) {
-        walk(node.children)
-      }
-    })
+/**
+ * Walk the current project's long-note HTML, collect every
+ * `scaffold-media://` reference along with whether it appears in an
+ * `<img>` or `<audio>` element, then resolve each unique hash against
+ * the media adapter to retrieve its stored size.
+ *
+ * Bytes are reported per-project (sum across distinct hashes), so the
+ * same hash referenced twice in one project does not double-count.
+ */
+async function refreshProjectMediaUsage() {
+  if (!currentProject.value) {
+    projectMediaUsage.value = { imageBytes: 0, audioBytes: 0 }
+    return
   }
 
-  walk(items)
-  return usage
+  const imageHashes = new Set()
+  const audioHashes = new Set()
+
+  function walk(items) {
+    if (!Array.isArray(items)) return
+    for (const item of items) {
+      if (Array.isArray(item.longNotes)) {
+        for (const note of item.longNotes) {
+          if (typeof note?.text !== 'string') continue
+          const refs = extractRefHashesFromHtml(note.text)
+          if (refs.length === 0) continue
+          // Inspect the actual element to classify image vs audio.
+          const doc = new DOMParser().parseFromString(note.text, 'text/html')
+          const imgs = doc.querySelectorAll('img[src^="scaffold-media://"]')
+          const audios = doc.querySelectorAll('audio[src^="scaffold-media://"]')
+          imgs.forEach((el) => {
+            const hash = (el.getAttribute('src') || '').slice('scaffold-media://'.length)
+            if (hash) imageHashes.add(hash)
+          })
+          audios.forEach((el) => {
+            const hash = (el.getAttribute('src') || '').slice('scaffold-media://'.length)
+            if (hash) audioHashes.add(hash)
+          })
+        }
+      }
+      if (Array.isArray(item.children) && item.children.length > 0) {
+        walk(item.children)
+      }
+    }
+  }
+
+  walk(currentProject.value.lists || [])
+
+  const adapter = getMediaAdapter()
+  let imageBytes = 0
+  let audioBytes = 0
+  for (const hash of imageHashes) {
+    const row = await adapter.get(hash)
+    if (row?.size) imageBytes += row.size
+  }
+  for (const hash of audioHashes) {
+    const row = await adapter.get(hash)
+    if (row?.size) audioBytes += row.size
+  }
+  projectMediaUsage.value = { imageBytes, audioBytes }
 }
 
 function getUtf8Bytes(value) {
@@ -595,10 +634,20 @@ onMounted(async () => {
   loadActiveTab()
   await loadProgramSettings()
   await loadVersions()
+  await refreshProjectMediaUsage()
 })
 
-watch(currentProject, () => {
-  loadVersions()
+watch(currentProject, async () => {
+  await loadVersions()
+  await refreshProjectMediaUsage()
+})
+
+// When the dialog opens, recompute media usage so it reflects any
+// uploads/deletes that happened while the dialog was closed.
+watch(showDialog, async (visible) => {
+  if (visible) {
+    await refreshProjectMediaUsage()
+  }
 })
 
 async function loadProgramSettings() {
@@ -673,8 +722,8 @@ function restoreVersion(version) {
     message: `This will create a new project from the version "${version.name || formatDate(version.timestamp)}". Continue?`,
     cancel: true,
     persistent: true,
-  }).onOk(() => {
-    const restoredProjectId = store.restoreVersion(version)
+  }).onOk(async () => {
+    const restoredProjectId = await store.restoreVersion(version)
     if (restoredProjectId) {
       $q.notify({
         type: 'positive',

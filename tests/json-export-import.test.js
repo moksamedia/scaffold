@@ -3,6 +3,9 @@ import {
   exportAsJSON,
   importFromJSON,
   validateImportData,
+  attachMediaPayload,
+  ingestMediaPayload,
+  collectExportRefHashes,
 } from 'src/utils/export/json.js'
 import {
   makeProject,
@@ -11,6 +14,9 @@ import {
   makeComplexProject,
   makeExportData,
 } from './fixtures/projects.js'
+import { ingestBlob } from 'src/utils/media/ingest.js'
+import { getMediaAdapter } from 'src/utils/media/index.js'
+import { buildMediaRef, MEDIA_REF_PROTOCOL } from 'src/utils/media/references.js'
 
 // These tests treat JSON as a data contract, not just a utility output:
 // if this breaks, backups/imports/migration safety are at risk.
@@ -184,28 +190,28 @@ describe('validateImportData', () => {
 })
 
 describe('importFromJSON', () => {
-  it('throws on invalid data', () => {
-    expect(() => importFromJSON({})).toThrow('Import validation failed')
+  it('throws on invalid data', async () => {
+    await expect(importFromJSON({})).rejects.toThrow('Import validation failed')
   })
 
-  it('returns normalized projects', () => {
+  it('returns normalized projects', async () => {
     const project = makeProject({
       lists: [
         makeItem({ id: 'i1', text: 'Hello', shortNotes: [{ id: 's1', text: 'note' }] }),
       ],
     })
     const data = makeExportData([project])
-    const result = importFromJSON(data)
+    const result = await importFromJSON(data)
 
     expect(result.projects).toHaveLength(1)
     expect(result.projects[0].lists).toHaveLength(1)
     expect(result.projects[0].lists[0].text).toBe('Hello')
   })
 
-  it('normalizes divider items (no children attached)', () => {
+  it('normalizes divider items (no children attached)', async () => {
     const div = makeDivider({ id: 'div-import' })
     const data = makeExportData([makeProject({ lists: [div] })])
-    const result = importFromJSON(data)
+    const result = await importFromJSON(data)
     const importedDiv = result.projects[0].lists[0]
 
     expect(importedDiv.kind).toBe('divider')
@@ -214,19 +220,19 @@ describe('importFromJSON', () => {
     expect(importedDiv.longNotes).toEqual([])
   })
 
-  it('assigns parentId during normalization', () => {
+  it('assigns parentId during normalization', async () => {
     // Parent linkage is required by store operations like outdent/move.
     const child = makeItem({ id: 'c1', text: 'child' })
     const parent = makeItem({ id: 'p1', text: 'parent', children: [child] })
     const data = makeExportData([makeProject({ lists: [parent] })])
-    const result = importFromJSON(data)
+    const result = await importFromJSON(data)
 
     expect(result.projects[0].lists[0].children[0].parentId).toBe('p1')
   })
 
-  it('fills default settings when missing from import', () => {
+  it('fills default settings when missing from import', async () => {
     const data = makeExportData([makeProject({ settings: {} })])
-    const result = importFromJSON(data)
+    const result = await importFromJSON(data)
     const s = result.projects[0].settings
 
     expect(s.fontSize).toBe(14)
@@ -235,9 +241,9 @@ describe('importFromJSON', () => {
     expect(s.nonTibetanFontSize).toBe(16)
   })
 
-  it('preserves provided settings over defaults', () => {
+  it('preserves provided settings over defaults', async () => {
     const data = makeExportData([makeProject({ settings: { fontSize: 20, indentSize: 48 } })])
-    const result = importFromJSON(data)
+    const result = await importFromJSON(data)
     const s = result.projects[0].settings
 
     expect(s.fontSize).toBe(20)
@@ -246,10 +252,10 @@ describe('importFromJSON', () => {
 })
 
 describe('export → import roundtrip', () => {
-  it('preserves complex project structure', () => {
+  it('preserves complex project structure', async () => {
     const original = makeComplexProject()
     const exported = exportAsJSON([original], original.id)
-    const imported = importFromJSON(exported)
+    const imported = await importFromJSON(exported)
 
     const p = imported.projects[0]
     expect(p.name).toBe(original.name)
@@ -267,7 +273,7 @@ describe('export → import roundtrip', () => {
     expect(p.lists[2].text).toBe('Second root')
   })
 
-  it('preserves settings through roundtrip', () => {
+  it('preserves settings through roundtrip', async () => {
     const original = makeProject({
       settings: {
         fontSize: 18,
@@ -277,7 +283,7 @@ describe('export → import roundtrip', () => {
       },
     })
     const exported = exportAsJSON([original])
-    const imported = importFromJSON(exported)
+    const imported = await importFromJSON(exported)
     const s = imported.projects[0].settings
 
     expect(s.fontSize).toBe(18)
@@ -387,23 +393,23 @@ describe('importFromJSON with projectVersions', () => {
     }
   }
 
-  it('returns empty projectVersions when payload omits the field (back-compat)', () => {
+  it('returns empty projectVersions when payload omits the field (back-compat)', async () => {
     const data = makeExportData([makeProject()])
-    const result = importFromJSON(data)
+    const result = await importFromJSON(data)
     expect(result.projectVersions).toEqual({})
   })
 
-  it('returns parsed versions grouped by original project id', () => {
+  it('returns parsed versions grouped by original project id', async () => {
     const data = makeExportData([makeProject({ id: 'p1' })])
     data.projectVersions = {
       p1: [makeStoredVersion('p1', { id: 'va' }), makeStoredVersion('p1', { id: 'vb' })],
     }
-    const result = importFromJSON(data)
+    const result = await importFromJSON(data)
     expect(result.projectVersions.p1).toHaveLength(2)
     expect(result.projectVersions.p1[0].id).toBe('va')
   })
 
-  it('skips malformed version entries with warnings rather than failing', () => {
+  it('skips malformed version entries with warnings rather than failing', async () => {
     const data = makeExportData([makeProject({ id: 'p1' })])
     data.projectVersions = {
       p1: [
@@ -412,24 +418,217 @@ describe('importFromJSON with projectVersions', () => {
         { /* no id */ projectId: 'p1', timestamp: 200, data: { projects: [makeProject()] } },
       ],
     }
-    const result = importFromJSON(data)
+    const result = await importFromJSON(data)
     expect(result.projectVersions.p1).toHaveLength(1)
     expect(result.projectVersions.p1[0].id).toBe('good')
     expect(result.warnings.filter((w) => w.startsWith('Skipped version'))).toHaveLength(2)
   })
 
-  it('round-trips export → import to recover snapshots', () => {
+  it('round-trips export → import to recover snapshots', async () => {
     const project = makeProject({ id: 'p1' })
     const storedVersion = makeStoredVersion('p1')
     const exported = exportAsJSON([project], project.id, {
       versionsByProjectId: { p1: [storedVersion] },
     })
-    const imported = importFromJSON(exported)
+    const imported = await importFromJSON(exported)
 
     expect(imported.projectVersions.p1).toHaveLength(1)
     const recovered = imported.projectVersions.p1[0]
     expect(recovered.id).toBe(storedVersion.id)
     expect(recovered.timestamp).toBe(storedVersion.timestamp)
     expect(recovered.data.projects[0].id).toBe('p1')
+  })
+})
+
+// Media payload covers the bundling of long-note media bytes alongside
+// the project payload. Exports must carry exactly the bytes referenced
+// by the projects (and embedded version snapshots), and imports must
+// hydrate them into the local media adapter so refs resolve afterwards.
+describe('JSON export with media payload', () => {
+  async function ingestImage(text) {
+    const blob = new Blob([new TextEncoder().encode(text)], { type: 'image/png' })
+    return ingestBlob(blob)
+  }
+
+  it('omits media field when no long-note refs are present', async () => {
+    const project = makeProject({
+      lists: [makeItem({ longNotes: [{ id: 'ln', text: '<p>plain</p>', collapsed: false }] })],
+    })
+    const exportData = exportAsJSON([project], project.id)
+    await attachMediaPayload(exportData)
+    expect(exportData.media).toBeUndefined()
+  })
+
+  it('attaches base64-encoded bytes for every referenced hash', async () => {
+    const { hash: hashA } = await ingestImage('image-bytes-a')
+    const { hash: hashB } = await ingestImage('image-bytes-b')
+    const project = makeProject({
+      lists: [
+        makeItem({
+          longNotes: [
+            {
+              id: 'ln1',
+              text:
+                `<p><img src="${buildMediaRef(hashA)}"></p>` +
+                `<p><img src="${buildMediaRef(hashB)}"></p>`,
+              collapsed: false,
+            },
+          ],
+        }),
+      ],
+    })
+    const exportData = exportAsJSON([project], project.id)
+    await attachMediaPayload(exportData)
+
+    expect(exportData.media).toBeDefined()
+    expect(Object.keys(exportData.media).sort()).toEqual([hashA, hashB].sort())
+    expect(typeof exportData.media[hashA].base64).toBe('string')
+    expect(exportData.media[hashA].mime).toBe('image/png')
+  })
+
+  it('long-note HTML stays reference-only in the export payload', async () => {
+    const { hash } = await ingestImage('only-once')
+    const project = makeProject({
+      lists: [
+        makeItem({
+          longNotes: [{ id: 'ln', text: `<img src="${buildMediaRef(hash)}">`, collapsed: false }],
+        }),
+      ],
+    })
+    const exportData = exportAsJSON([project], project.id)
+    await attachMediaPayload(exportData)
+
+    const serialized = JSON.stringify(exportData.projects)
+    expect(serialized).toContain(MEDIA_REF_PROTOCOL)
+    expect(serialized).not.toContain('data:image')
+  })
+
+  it('collectExportRefHashes finds refs inside embedded version snapshots', async () => {
+    const { hash: liveHash } = await ingestImage('live-asset')
+    const { hash: versionOnlyHash } = await ingestImage('version-asset')
+
+    const project = makeProject({
+      id: 'p1',
+      lists: [
+        makeItem({
+          longNotes: [{ id: 'ln', text: `<img src="${buildMediaRef(liveHash)}">`, collapsed: false }],
+        }),
+      ],
+    })
+
+    const versionData = makeExportData([
+      makeProject({
+        id: 'p1',
+        lists: [
+          makeItem({
+            longNotes: [
+              { id: 'lnv', text: `<img src="${buildMediaRef(versionOnlyHash)}">`, collapsed: false },
+            ],
+          }),
+        ],
+      }),
+    ])
+
+    const exportData = exportAsJSON([project], project.id, {
+      versionsByProjectId: {
+        p1: [
+          {
+            id: 'v1',
+            projectId: 'p1',
+            timestamp: 1,
+            stats: { items: 1, notes: 1 },
+            data: versionData,
+          },
+        ],
+      },
+    })
+
+    const refs = collectExportRefHashes(exportData)
+    expect(refs.has(liveHash)).toBe(true)
+    expect(refs.has(versionOnlyHash)).toBe(true)
+  })
+})
+
+describe('JSON import with media payload', () => {
+  it('ingests every media entry into the local adapter', async () => {
+    const { hash } = await ingestBlob(
+      new Blob([new TextEncoder().encode('hello-image')], { type: 'image/png' }),
+    )
+
+    const project = makeProject({
+      lists: [
+        makeItem({
+          longNotes: [{ id: 'ln', text: `<img src="${buildMediaRef(hash)}">`, collapsed: false }],
+        }),
+      ],
+    })
+    const exported = exportAsJSON([project], project.id)
+    await attachMediaPayload(exported)
+
+    // Wipe the local adapter to simulate "fresh device receiving an export".
+    const adapter = getMediaAdapter()
+    for (const h of await adapter.listHashes()) {
+      await adapter.delete(h)
+    }
+    expect(await adapter.has(hash)).toBe(false)
+
+    const result = await importFromJSON(exported)
+    expect(result.importedMediaCount).toBe(1)
+    expect(await adapter.has(hash)).toBe(true)
+  })
+
+  it('skips malformed media entries with warnings rather than failing', async () => {
+    const { hash } = await ingestBlob(
+      new Blob([new TextEncoder().encode('skip-test')], { type: 'image/png' }),
+    )
+    const exported = exportAsJSON(
+      [
+        makeProject({
+          lists: [
+            makeItem({
+              longNotes: [{ id: 'ln', text: `<img src="${buildMediaRef(hash)}">`, collapsed: false }],
+            }),
+          ],
+        }),
+      ],
+      null,
+    )
+    exported.media = {
+      [hash]: { mime: 'image/png', size: 9, base64: 'aGVsbG8=' },
+      'not-a-hash': { mime: 'image/png', size: 0, base64: '' },
+      [hash.slice(0, 63) + '!']: { mime: 'image/png', size: 0, base64: 'aaa' },
+    }
+
+    const result = await importFromJSON(exported)
+    expect(result.importedMediaCount).toBe(1)
+    const skipped = result.warnings.filter((w) => w.startsWith('Skipped media entry'))
+    expect(skipped.length).toBeGreaterThanOrEqual(1)
+  })
+
+  it('legacy exports without a media field still import cleanly', async () => {
+    const data = makeExportData([makeProject()])
+    expect(data.media).toBeUndefined()
+    const result = await importFromJSON(data)
+    expect(result.importedMediaCount).toBe(0)
+  })
+
+  it('directly ingests via ingestMediaPayload helper for consumers that bypass importFromJSON', async () => {
+    const { hash } = await ingestBlob(
+      new Blob([new TextEncoder().encode('direct')], { type: 'image/png' }),
+    )
+    const adapter = getMediaAdapter()
+    const exported = exportAsJSON(
+      [makeProject({ lists: [makeItem({ longNotes: [{ id: 'ln', text: `<img src="${buildMediaRef(hash)}">`, collapsed: false }] })] })],
+      null,
+    )
+    await attachMediaPayload(exported)
+
+    for (const h of await adapter.listHashes()) {
+      await adapter.delete(h)
+    }
+    const summary = await ingestMediaPayload(exported)
+    expect(summary.imported).toBe(1)
+    expect(summary.skipped).toBe(0)
+    expect(await adapter.has(hash)).toBe(true)
   })
 })

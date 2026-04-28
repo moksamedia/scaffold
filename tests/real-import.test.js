@@ -62,8 +62,8 @@ describe('real export: validation', () => {
 describe('real export: importFromJSON', () => {
   let imported
 
-  beforeEach(() => {
-    imported = importFromJSON(realExport)
+  beforeEach(async () => {
+    imported = await importFromJSON(realExport)
   })
 
   it('imports both projects', () => {
@@ -198,7 +198,7 @@ describe('real export: store import flow', () => {
     const store = useOutlineStore()
     await store.initPromise
 
-    const result = importFromJSON(realExport)
+    const result = await importFromJSON(realExport)
     for (const project of result.projects) {
       if (!project.createdAt) project.createdAt = new Date().toISOString()
       if (!project.updatedAt) project.updatedAt = new Date().toISOString()
@@ -213,7 +213,7 @@ describe('real export: store import flow', () => {
     const store = useOutlineStore()
     await store.initPromise
 
-    const result = importFromJSON(realExport)
+    const result = await importFromJSON(realExport)
     const pramanavartika = result.projects[0]
     store.projects.push(pramanavartika)
     store.selectProject(pramanavartika.id)
@@ -227,7 +227,7 @@ describe('real export: store import flow', () => {
     const store = useOutlineStore()
     await store.initPromise
 
-    const result = importFromJSON(realExport)
+    const result = await importFromJSON(realExport)
     const pramanavartika = result.projects[0]
     store.projects.push(pramanavartika)
     store.selectProject(pramanavartika.id)
@@ -245,7 +245,7 @@ describe('real export: store import flow', () => {
     const store = useOutlineStore()
     await store.initPromise
 
-    const result = importFromJSON(realExport)
+    const result = await importFromJSON(realExport)
     const p2 = result.projects[1]
     store.projects.push(p2)
     store.selectProject(p2.id)

@@ -17,6 +17,9 @@ import {
   PROJECT_LOCK_HEARTBEAT_MS,
 } from 'src/utils/project-tab-lock.js'
 import { getStorageAdapter } from 'src/utils/storage/index.js'
+import { getMediaAdapter } from 'src/utils/media/index.js'
+import { runMediaMigration } from 'src/utils/media/migration.js'
+import { runMediaGc } from 'src/utils/media/gc.js'
 
 /** Placeholder text for newly created list items (cleared when user starts editing). */
 export const DEFAULT_NEW_LIST_ITEM_TEXT = 'New Item'
@@ -54,6 +57,12 @@ export const useOutlineStore = defineStore('outline', () => {
   let projectLockHeartbeatTimer = null
   const STORAGE_USAGE_WARNING_THRESHOLD = 0.85
   const FALLBACK_LOCAL_STORAGE_QUOTA_BYTES = 5 * 1024 * 1024
+
+  /** Aggregate media-store usage (count of blobs + total bytes) for Settings. */
+  const mediaUsage = ref({ count: 0, bytes: 0 })
+  let mediaGcTimer = null
+  /** Idle GC frequency. Tests can stub setInterval to verify wiring. */
+  const MEDIA_GC_INTERVAL_MS = 10 * 60 * 1000
 
   const currentProject = computed(() => {
     return projects.value.find((p) => p.id === currentProjectId.value)
@@ -216,6 +225,7 @@ export const useOutlineStore = defineStore('outline', () => {
       }
       syncProjectLockSession()
       persistToStorage()
+      void triggerMediaGc('project-delete')
     }
   }
 
@@ -505,6 +515,9 @@ export const useOutlineStore = defineStore('outline', () => {
         notes.splice(index, 1)
         currentProject.value.updatedAt = new Date().toISOString()
         persistToStorage()
+        if (noteType === 'long') {
+          void triggerMediaGc('long-note-delete')
+        }
       }
     }
   }
@@ -909,7 +922,7 @@ export const useOutlineStore = defineStore('outline', () => {
         currentProject.value.id,
       ])
     }
-    exportSingleProjectAsJSON(currentProject.value, exportOptions)
+    await exportSingleProjectAsJSON(currentProject.value, exportOptions)
   }
 
   async function exportAllAsJSON(options = {}) {
@@ -919,7 +932,7 @@ export const useOutlineStore = defineStore('outline', () => {
         projects.value.map((p) => p.id),
       )
     }
-    exportAllProjectsAsJSON(projects.value, exportOptions)
+    await exportAllProjectsAsJSON(projects.value, exportOptions)
   }
 
   async function persistImportedVersions(versionsByOriginalProjectId, projectIdMap) {
@@ -999,7 +1012,7 @@ export const useOutlineStore = defineStore('outline', () => {
         try {
           const text = await file.text()
           const jsonData = JSON.parse(text)
-          const importResult = importFromJSON(jsonData)
+          const importResult = await importFromJSON(jsonData)
           const warnings = [...(importResult.warnings || [])]
 
           // Track original-id → final-id so version-history meta keys can be remapped.
@@ -1039,10 +1052,13 @@ export const useOutlineStore = defineStore('outline', () => {
             warnings.push(...summary.warnings)
           }
 
+          await refreshMediaUsage()
+
           resolve({
             success: true,
             imported: importResult.projects.length,
             importedVersions: importedVersionCount,
+            importedMedia: importResult.importedMediaCount || 0,
             warnings,
           })
         } catch (error) {
@@ -1215,6 +1231,43 @@ export const useOutlineStore = defineStore('outline', () => {
     } catch {
       storageUsageRatio.value = 0
       storageUsageWarning.value = null
+    }
+  }
+
+  async function refreshMediaUsage() {
+    try {
+      const stats = await getMediaAdapter().getStats()
+      mediaUsage.value = {
+        count: stats?.count || 0,
+        bytes: stats?.bytes || 0,
+      }
+    } catch (error) {
+      console.warn('Failed to read media usage stats:', error)
+    }
+    return mediaUsage.value
+  }
+
+  async function triggerMediaGc(reason = 'scheduled') {
+    try {
+      await runMediaGc()
+      await refreshMediaUsage()
+    } catch (error) {
+      console.warn(`Media GC (${reason}) failed:`, error)
+    }
+  }
+
+  function startMediaGcTimer() {
+    if (mediaGcTimer !== null) return
+    if (typeof setInterval !== 'function') return
+    mediaGcTimer = setInterval(() => {
+      void triggerMediaGc('interval')
+    }, MEDIA_GC_INTERVAL_MS)
+  }
+
+  function stopMediaGcTimer() {
+    if (mediaGcTimer !== null) {
+      clearInterval(mediaGcTimer)
+      mediaGcTimer = null
     }
   }
 
@@ -1685,12 +1738,12 @@ export const useOutlineStore = defineStore('outline', () => {
     return versions.length > 0 ? versions[0] : null
   }
 
-  function restoreVersion(version) {
+  async function restoreVersion(version) {
     if (!version || !version.data) return null
-    
+
     try {
       // Import the version data
-      const imported = importFromJSON(version.data)
+      const imported = await importFromJSON(version.data)
       if (imported.projects && imported.projects.length > 0) {
         const restoredProject = imported.projects[0]
         
@@ -1748,8 +1801,22 @@ export const useOutlineStore = defineStore('outline', () => {
 
   const initPromise = loadFromStorage().then(async () => {
     registerProjectLockUnloadHandlers()
+
+    // Migrate any pre-existing inline `data:` URIs in long-note HTML and
+    // version snapshots into the content-addressable media store. The
+    // operation is idempotent because IDs are content hashes, so it is
+    // safe to run on every app load.
+    try {
+      await runMediaMigration()
+    } catch (error) {
+      console.warn('Media migration failed:', error)
+    }
+
+    await refreshMediaUsage()
+    startMediaGcTimer()
+
     await setupAutoVersioning()
-    
+
     const raw = await getStorageAdapter().getMeta('program-settings')
     if (raw) {
       const programSettings = JSON.parse(raw)
@@ -1815,6 +1882,10 @@ export const useOutlineStore = defineStore('outline', () => {
     storageSaveError,
     storageUsageWarning,
     storageUsageRatio,
+    mediaUsage,
+    refreshMediaUsage,
+    triggerMediaGc,
+    stopMediaGcTimer,
     exportAsMarkdown: exportProjectAsMarkdown,
     exportAsDocx: exportProjectAsDocx,
     exportAsJSON: exportProjectAsJSON,
