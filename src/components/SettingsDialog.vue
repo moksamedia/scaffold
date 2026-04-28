@@ -1141,14 +1141,27 @@ async function refreshS3State() {
       didAutoUnlock = !!getS3Credentials()?.secretAccessKey
     }
     const credentials = getS3Credentials()
+    const supportsRemoteSync = store.mediaBackendSupportsRemoteSync()
     logger.debug('settings.s3.refreshState', {
       configMode: stored.publicConfig.mode,
       didAutoUnlock,
       unlockedAfter: Boolean(credentials?.secretAccessKey),
       bucket: stored.publicConfig.bucket,
       mediaBackend: store.mediaBackend,
-      supportsRemoteSync: store.mediaBackendSupportsRemoteSync(),
+      supportsRemoteSync,
     })
+    // Surface the S3-configured-but-not-active mismatch at info level so
+    // it shows up in default-verbosity diagnostics. This is the exact
+    // condition that powers the "S3 sync currently inactive" banner.
+    if (credentials?.secretAccessKey && !supportsRemoteSync) {
+      logger.info('media.s3.mismatch.unlockedButNotActive', {
+        configMode: stored.publicConfig.mode,
+        bucket: stored.publicConfig.bucket,
+        mediaBackend: store.mediaBackend,
+        didAutoUnlock,
+        hint: 'credentials available but active adapter has no remote tier — call reselectMediaBackend',
+      })
+    }
     s3ConfigState.value = {
       configured: true,
       mode: stored.publicConfig.mode,

@@ -145,6 +145,19 @@ export async function selectMediaAdapter(overrides = {}) {
       })
       return { backend, error: null }
     }
+    // S3 is configured on disk but credentials are not available in
+    // memory yet (persisted-mode vault not unlocked). This is the
+    // root cause of "S3 sync currently inactive" banners after boot:
+    // the next call to reselectMediaBackend() (after unlock) is what
+    // promotes the active adapter to the cached-S3 stack.
+    if (stored?.publicConfig && !credentials?.secretAccessKey) {
+      logger.info('media.backend.select.s3.skipped.locked', {
+        mode: stored.publicConfig.mode,
+        bucket: stored.publicConfig.bucket,
+        reason: 'no in-memory secretAccessKey',
+        hint: 'persisted-mode vault may need unlock before reselect',
+      })
+    }
   } catch (error) {
     // Fall through to lower tiers when the S3 config is unreadable.
     logger.error('media.backend.tier.s3.failed', error, { tier: 's3' })
