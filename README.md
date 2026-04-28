@@ -26,6 +26,8 @@ A powerful hierarchical outline and note-taking application built with Vue 3 and
 - **Dual-Script Typography**: Configure Tibetan and non-Tibetan font family, size, and color separately
 - **Context-Aware Shortcuts**: Intelligent keyboard handling that adapts to editing context
 - **Rich Text Editing**: Full-featured editor with lists, quotes, code blocks, links, and images
+- **Long Note Media Tools**: Insert image URLs, upload small images, and insert audio URLs in long notes
+- **Storage Guardrails**: Warns on high browser storage usage and save failures (for example quota limits)
 - **GitHub Pages Deployment**: Deploy directly to GitHub Pages with automated CI/CD
 
 ## Installation & Setup
@@ -110,6 +112,12 @@ A powerful hierarchical outline and note-taking application built with Vue 3 and
 - `Tab` - Increase indentation
 - `Shift + Tab` - Decrease indentation
 - Strip Line Breaks button - Remove all line breaks from selected text
+- Media toolbar buttons:
+  - Insert image by URL (`http`/`https`)
+  - Upload small image files (inline)
+  - Upload audio files for inline playback
+  - Remove selected audio player embed
+- Press `Backspace` or `Delete` next to an embedded audio player to remove it
 - Rich text formatting toolbar available
 
 ### Export Options

@@ -46,9 +46,14 @@ export const useOutlineStore = defineStore('outline', () => {
   const currentlyEditingId = ref(null)
   const longNoteEditorActive = ref(false)
   const storeReady = ref(false)
+  const storageSaveError = ref(null)
+  const storageUsageWarning = ref(null)
+  const storageUsageRatio = ref(0)
   /** Set when selectProject is blocked because another tab holds the lock (for UI dialog). */
   const projectLockBlockedProjectId = ref(null)
   let projectLockHeartbeatTimer = null
+  const STORAGE_USAGE_WARNING_THRESHOLD = 0.85
+  const FALLBACK_LOCAL_STORAGE_QUOTA_BYTES = 5 * 1024 * 1024
 
   const currentProject = computed(() => {
     return projects.value.find((p) => p.id === currentProjectId.value)
@@ -1037,11 +1042,81 @@ export const useOutlineStore = defineStore('outline', () => {
     persistToStorage()
   }
 
+  function isQuotaExceededError(error) {
+    if (!error) return false
+    return (
+      error?.name === 'QuotaExceededError' ||
+      error?.code === 22 ||
+      error?.code === 1014 ||
+      /quota/i.test(error?.message || '')
+    )
+  }
+
+  function formatBytes(bytes) {
+    if (!Number.isFinite(bytes) || bytes <= 0) return '0 B'
+    const units = ['B', 'KB', 'MB', 'GB']
+    let value = bytes
+    let unitIndex = 0
+    while (value >= 1024 && unitIndex < units.length - 1) {
+      value /= 1024
+      unitIndex++
+    }
+    return `${value.toFixed(unitIndex === 0 ? 0 : 1)} ${units[unitIndex]}`
+  }
+
+  function getPersistErrorMessage(error) {
+    if (isQuotaExceededError(error)) {
+      return 'Storage is full. Remove large long-note media or switch to URL-based media, then try again.'
+    }
+    return 'Could not save changes to browser storage. Try reloading after exporting a JSON backup.'
+  }
+
+  async function updateStorageUsageWarning(adapter) {
+    try {
+      const stats = await adapter.getStorageStats()
+      const used = stats?.used || 0
+      const quota = stats?.quota || FALLBACK_LOCAL_STORAGE_QUOTA_BYTES
+
+      if (!quota) {
+        storageUsageRatio.value = 0
+        storageUsageWarning.value = null
+        return
+      }
+
+      const ratio = used / quota
+      storageUsageRatio.value = ratio
+      if (ratio >= STORAGE_USAGE_WARNING_THRESHOLD) {
+        const percent = Math.round(ratio * 100)
+        storageUsageWarning.value =
+          `Storage usage is high (${percent}%: ${formatBytes(used)} of ${formatBytes(quota)}). ` +
+          'Prefer media URLs over large uploads.'
+      } else {
+        storageUsageWarning.value = null
+      }
+    } catch {
+      storageUsageRatio.value = 0
+      storageUsageWarning.value = null
+    }
+  }
+
   function persistToStorage() {
     const adapter = getStorageAdapter()
-    adapter.saveProjects(JSON.parse(JSON.stringify(projects.value)))
-    adapter.setMeta('current-project', currentProjectId.value || '')
-    adapter.setMeta('font-scale', fontScale.value.toString())
+    const projectsSnapshot = JSON.parse(JSON.stringify(projects.value))
+    const currentProjectSnapshot = currentProjectId.value || ''
+    const fontScaleSnapshot = fontScale.value.toString()
+
+    void (async () => {
+      try {
+        await adapter.saveProjects(projectsSnapshot)
+        await adapter.setMeta('current-project', currentProjectSnapshot)
+        await adapter.setMeta('font-scale', fontScaleSnapshot)
+        storageSaveError.value = null
+        await updateStorageUsageWarning(adapter)
+      } catch (error) {
+        storageSaveError.value = getPersistErrorMessage(error)
+        console.error('Failed to persist project data:', error)
+      }
+    })()
   }
 
   function createExampleProject() {
@@ -1618,6 +1693,9 @@ export const useOutlineStore = defineStore('outline', () => {
     currentlyEditingId,
     longNoteEditorActive,
     setLongNoteEditorActive,
+    storageSaveError,
+    storageUsageWarning,
+    storageUsageRatio,
     exportAsMarkdown: exportProjectAsMarkdown,
     exportAsDocx: exportProjectAsDocx,
     exportAsJSON: exportProjectAsJSON,

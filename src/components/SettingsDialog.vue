@@ -170,6 +170,21 @@
           <q-tab-panel name="project">
             <div class="text-h6 q-mb-md">Settings for: {{ currentProject?.name }}</div>
 
+            <q-banner
+              v-if="currentProject"
+              dense
+              rounded
+              class="bg-blue-1 text-blue-10 q-mb-lg"
+            >
+              <div class="text-subtitle2">Project storage usage</div>
+              <div class="text-body2">Total: {{ formatBytes(projectStorageUsage.totalBytes) }}</div>
+              <div class="text-caption">
+                Media: {{ formatBytes(projectStorageUsage.mediaBytes) }} (Images:
+                {{ formatBytes(projectStorageUsage.imageBytes) }}, Audio:
+                {{ formatBytes(projectStorageUsage.audioBytes) }})
+              </div>
+            </q-banner>
+
             <div class="q-mb-lg">
               <div class="text-subtitle1 q-mb-sm">Display Settings</div>
               <div class="row q-col-gutter-md">
@@ -500,6 +515,77 @@ const fontSizeOptions = Array.from({ length: 37 }, (_, i) => {
   const size = i + 12
   return { label: `${size}px`, value: size }
 })
+
+const projectStorageUsage = computed(() => {
+  if (!currentProject.value) {
+    return {
+      totalBytes: 0,
+      mediaBytes: 0,
+      imageBytes: 0,
+      audioBytes: 0,
+    }
+  }
+
+  const totalBytes = getUtf8Bytes(JSON.stringify(currentProject.value))
+  const media = collectMediaStorageUsage(currentProject.value.lists || [])
+
+  return {
+    totalBytes,
+    mediaBytes: media.imageBytes + media.audioBytes,
+    imageBytes: media.imageBytes,
+    audioBytes: media.audioBytes,
+  }
+})
+
+function collectMediaStorageUsage(items) {
+  const usage = { imageBytes: 0, audioBytes: 0 }
+  const dataSrcRegex = /src\s*=\s*["'](data:(image|audio)\/[^"']+)["']/gi
+
+  function walk(nodes) {
+    nodes.forEach((node) => {
+      if (Array.isArray(node.longNotes)) {
+        node.longNotes.forEach((note) => {
+          if (typeof note?.text !== 'string') return
+
+          for (const match of note.text.matchAll(dataSrcRegex)) {
+            const dataUrl = match[1] || ''
+            const kind = match[2]
+            const bytes = getUtf8Bytes(dataUrl)
+            if (kind === 'image') {
+              usage.imageBytes += bytes
+            } else if (kind === 'audio') {
+              usage.audioBytes += bytes
+            }
+          }
+        })
+      }
+
+      if (Array.isArray(node.children) && node.children.length > 0) {
+        walk(node.children)
+      }
+    })
+  }
+
+  walk(items)
+  return usage
+}
+
+function getUtf8Bytes(value) {
+  if (!value) return 0
+  return new TextEncoder().encode(value).length
+}
+
+function formatBytes(bytes) {
+  if (!Number.isFinite(bytes) || bytes <= 0) return '0 B'
+  const units = ['B', 'KB', 'MB', 'GB']
+  let value = bytes
+  let unitIndex = 0
+  while (value >= 1024 && unitIndex < units.length - 1) {
+    value /= 1024
+    unitIndex++
+  }
+  return `${value.toFixed(unitIndex === 0 ? 0 : 1)} ${units[unitIndex]}`
+}
 
 function persistProgramSettings() {
   return getStorageAdapter().setMeta('program-settings', JSON.stringify(programSettings.value))

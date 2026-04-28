@@ -51,6 +51,8 @@ Scaffold is a Quasar Vue 3 application for creating and managing hierarchical ou
 - `ProjectsSidebar.vue` - Left panel for project management and real-time settings controls
 - `MainLayout.vue` - Application layout with sidebar toggle and settings dialog integration
 - `SettingsDialog.vue` - Tabbed dialog for program-wide and project-specific settings, version history management
+- `AudioPlayer.vue` - Custom audio player UI used in long-note previews
+- `LongNoteRenderer.vue` - Render-function component that converts long-note HTML to VNodes and replaces native audio with `AudioPlayer`
 
 ### `/src/utils/export/`
 - `markdown.js` - Markdown export functionality with HTML to markdown conversion and blockquote handling
@@ -134,4 +136,13 @@ Scaffold is a Quasar Vue 3 application for creating and managing hierarchical ou
   - Tab/Shift+Tab keyboard shortcuts for indenting
   - Custom button to strip line breaks from selected text
   - Autosave functionality with debouncing
+- Long-note media support (Tier 1):
+  - Dedicated toolbar actions for image URL insertion, small image uploads, and audio file uploads
+  - Dedicated toolbar action to remove selected embedded audio players
+  - Backspace/Delete adjacent to an embedded audio player removes it (with empty wrapper paragraph cleanup)
+  - Custom `AudioPlayer.vue` component renders embedded audio in long-note previews with full styling control
+  - `LongNoteRenderer.vue` parses long-note HTML into VNodes, swapping `<audio>` for `AudioPlayer` while preserving typography
+- Storage safety guardrails:
+  - High-storage-usage warning based on adapter usage/quota stats
+  - User-facing save error when persistence fails (including quota overflow scenarios)
 - Show/hide all long notes toggle for quick overview

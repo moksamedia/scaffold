@@ -19,6 +19,11 @@ async function getStore() {
   return store
 }
 
+async function flushAsyncWork() {
+  await new Promise((resolve) => setTimeout(resolve, 0))
+  await Promise.resolve()
+}
+
 describe('Outline Store', () => {
   beforeEach(() => {
     setActivePinia(createPinia())
@@ -396,6 +401,37 @@ describe('Outline Store', () => {
       const store2 = await getStore()
       expect(store2.fontScale).toBe(150)
       expect(store2.indentSize).toBe(48)
+    })
+
+    it('sets storageSaveError when persistence fails', async () => {
+      seedStore([makeProject({ id: 'p1', lists: [makeItem({ id: 'i1', text: 'A' })] })])
+      const store = await getStore()
+      const adapter = getStorageAdapter()
+      const originalSaveProjects = adapter.saveProjects
+
+      adapter.saveProjects = vi.fn().mockRejectedValue(new DOMException('Quota reached', 'QuotaExceededError'))
+      store.updateListItem('i1', { text: 'B' })
+      await flushAsyncWork()
+
+      expect(store.storageSaveError).toContain('Storage is full')
+      adapter.saveProjects = originalSaveProjects
+    })
+
+    it('sets storageUsageWarning when storage usage is high', async () => {
+      seedStore([makeProject({ id: 'p1' })])
+      const store = await getStore()
+      const adapter = getStorageAdapter()
+      const originalGetStorageStats = adapter.getStorageStats
+
+      adapter.getStorageStats = vi.fn().mockResolvedValue({
+        used: 4.6 * 1024 * 1024,
+        quota: 5 * 1024 * 1024,
+      })
+      store.setFontScale(120)
+      await flushAsyncWork()
+
+      expect(store.storageUsageWarning).toContain('Storage usage is high')
+      adapter.getStorageStats = originalGetStorageStats
     })
   })
 

@@ -199,7 +199,7 @@
             <q-btn round dense flat size="xs" icon="close" @click.stop="deleteLongNote(note.id)" />
           </div>
           <div v-if="!note.collapsed" class="long-note-content" @dblclick.stop="editLongNote(note)">
-            <div v-html="formatTextWithTypography(note.text)"></div>
+            <LongNoteRenderer :html="note.text" :get-run-style="getRunStyle" />
           </div>
         </div>
       </div>
@@ -288,6 +288,18 @@
             </div>
             <q-btn icon="close" flat round dense @click="closeLongNoteDialog" />
           </q-card-section>
+          <div v-if="storageSaveError || storageUsageWarning" class="q-px-md q-pb-sm">
+            <q-banner
+              dense
+              rounded
+              :class="storageSaveError ? 'bg-negative text-white' : 'bg-warning text-black'"
+            >
+              <template #avatar>
+                <q-icon :name="storageSaveError ? 'error' : 'warning'" />
+              </template>
+              {{ storageSaveError || storageUsageWarning }}
+            </q-banner>
+          </div>
 
           <q-card-section class="q-pt-none">
             <q-editor
@@ -301,16 +313,38 @@
                   tip: 'Remove line breaks from selection',
                   handler: stripLineBreaks,
                 },
+                insertImageUrl: {
+                  icon: 'image',
+                  tip: 'Insert image from URL',
+                  handler: promptInsertImageUrl,
+                },
+                insertImageUpload: {
+                  icon: 'upload',
+                  tip: 'Upload image from your device',
+                  handler: promptInsertImageUpload,
+                },
+                insertAudioUrl: {
+                  icon: 'audiotrack',
+                  tip: 'Upload audio from your device',
+                  handler: promptInsertAudioUpload,
+                },
+                removeAudio: {
+                  icon: 'delete',
+                  tip: 'Remove selected audio',
+                  handler: removeSelectedAudio,
+                },
               }"
               :toolbar="[
                 ['bold', 'italic', 'underline'],
                 ['unordered', 'ordered', 'outdent', 'indent'],
                 ['quote', 'code', 'code_block'],
-                ['link', 'image', 'fullscreen'],
+                ['link', 'fullscreen'],
+                ['insertImageUrl', 'insertImageUpload', 'insertAudioUrl', 'removeAudio'],
                 ['undo', 'redo'],
-                ['upload', 'save'],
+                ['save'],
                 ['removeBreaks'],
               ]"
+              @click="handleEditorClick"
               @keydown="handleEditorKeydown"
             />
           </q-card-section>
@@ -331,6 +365,7 @@ import { useQuasar } from 'quasar'
 import { useOutlineStore, DEFAULT_NEW_LIST_ITEM_TEXT } from 'stores/outline-store'
 import { storeToRefs } from 'pinia'
 import { splitScriptRuns } from 'src/utils/text/script-runs'
+import LongNoteRenderer from './LongNoteRenderer.vue'
 
 const props = defineProps({
   item: {
@@ -366,6 +401,8 @@ const {
   nonTibetanFontFamily,
   nonTibetanFontSize,
   nonTibetanFontColor,
+  storageSaveError,
+  storageUsageWarning,
 } = storeToRefs(store)
 
 const scaleMultiplier = computed(() => (fontScale.value || 100) / 100)
@@ -391,6 +428,8 @@ const isAutosaving = ref(false)
 const lastAutosaved = ref(null)
 const NOTE_EDITOR_FONT_SCALE_KEY = 'scaffold-note-editor-font-scale'
 const noteEditorFontScale = ref(100)
+const MAX_IMAGE_UPLOAD_BYTES = 400 * 1024
+const MAX_AUDIO_UPLOAD_BYTES = 30 * 1024 * 1024
 const editorContentStyle = computed(() => ({
   fontSize: `${Math.round(16 * (noteEditorFontScale.value / 100))}px`,
   padding: '12px',
@@ -543,6 +582,12 @@ function outdent() {
 }
 
 function deleteItem() {
+  if (itemHasMeaningfulContent(props.item)) {
+    const confirmed = window.confirm(
+      'This list item contains content. Are you sure you want to delete it?',
+    )
+    if (!confirmed) return
+  }
   store.deleteListItem(props.item.id)
 }
 
@@ -573,6 +618,13 @@ function saveShortNote() {
 }
 
 function deleteShortNote(noteId) {
+  const note = props.item.shortNotes.find((n) => n.id === noteId)
+  if (note && hasMeaningfulText(note.text)) {
+    const confirmed = window.confirm(
+      'This note contains content. Are you sure you want to delete it?',
+    )
+    if (!confirmed) return
+  }
   store.deleteNote(props.item.id, noteId, 'short')
 }
 
@@ -659,6 +711,13 @@ function closeLongNoteDialog() {
 }
 
 function deleteLongNote(noteId) {
+  const note = props.item.longNotes.find((n) => n.id === noteId)
+  if (note && hasMeaningfulText(stripHtml(note.text))) {
+    const confirmed = window.confirm(
+      'This note contains content. Are you sure you want to delete it?',
+    )
+    if (!confirmed) return
+  }
   store.deleteNote(props.item.id, noteId, 'long')
 }
 
@@ -666,14 +725,319 @@ function toggleLongNote(noteId) {
   store.toggleNoteCollapse(props.item.id, noteId)
 }
 
-function formatText(text) {
-  return text
-    .replace(/<b>/g, '<strong>')
-    .replace(/<\/b>/g, '</strong>')
-    .replace(/<i>/g, '<em>')
-    .replace(/<\/i>/g, '</em>')
-    .replace(/<u>/g, '<span style="text-decoration: underline;">')
-    .replace(/<\/u>/g, '</span>')
+function hasMeaningfulText(text) {
+  return Boolean((text || '').trim())
+}
+
+function itemHasMeaningfulContent(item) {
+  if (hasMeaningfulText(item.text)) return true
+  if ((item.shortNotes || []).some((note) => hasMeaningfulText(note.text))) return true
+  if ((item.longNotes || []).some((note) => hasMeaningfulText(stripHtml(note.text)))) return true
+  if ((item.children || []).some((child) => itemHasMeaningfulContent(child))) return true
+  return false
+}
+
+function escapeAttribute(value) {
+  return value.replace(/&/g, '&amp;').replace(/"/g, '&quot;')
+}
+
+function normalizeHttpUrl(value) {
+  const trimmed = (value || '').trim()
+  if (!trimmed) return null
+  try {
+    const parsed = new URL(trimmed)
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+      return null
+    }
+    return parsed.toString()
+  } catch {
+    return null
+  }
+}
+
+function insertHtmlAtCursor(html) {
+  if (!longNoteEditor.value) return
+  longNoteEditor.value.focus()
+  document.execCommand('insertHTML', false, html)
+}
+
+function promptInsertImageUrl() {
+  $q.dialog({
+    title: 'Insert Image URL',
+    message: 'Use an http(s) image URL.',
+    prompt: {
+      model: '',
+      type: 'text',
+      isValid: (value) => Boolean(normalizeHttpUrl(value)),
+    },
+    cancel: true,
+    persistent: true,
+  }).onOk((value) => {
+    const mediaUrl = normalizeHttpUrl(value)
+    if (!mediaUrl) return
+    insertHtmlAtCursor(`<p><img src="${escapeAttribute(mediaUrl)}" alt="" /></p>`)
+  })
+}
+
+function promptInsertAudioUpload() {
+  const input = document.createElement('input')
+  input.type = 'file'
+  input.accept = 'audio/*'
+  input.onchange = () => {
+    const file = input.files?.[0]
+    if (!file) return
+
+    if (file.size > MAX_AUDIO_UPLOAD_BYTES) {
+      $q.notify({
+        type: 'warning',
+        message:
+          'Large audio upload blocked (>30MB) to protect browser storage. Compress the file before embedding.',
+      })
+      return
+    }
+
+    const reader = new FileReader()
+    reader.onload = () => {
+      const dataUrl = typeof reader.result === 'string' ? reader.result : ''
+      if (!dataUrl) return
+      insertHtmlAtCursor(
+        `<p class="embedded-audio-row"><audio controls src="${escapeAttribute(dataUrl)}">` +
+          'Your browser does not support the audio element.' +
+          '</audio><button type="button" class="remove-embedded-audio-btn" data-remove-audio="true" contenteditable="false" title="Remove audio" aria-label="Remove audio">✕</button></p>',
+      )
+    }
+    reader.onerror = () => {
+      $q.notify({
+        type: 'negative',
+        message: 'Could not read the selected audio file.',
+      })
+    }
+    reader.readAsDataURL(file)
+  }
+  input.click()
+}
+
+function promptInsertImageUpload() {
+  const input = document.createElement('input')
+  input.type = 'file'
+  input.accept = 'image/*'
+  input.onchange = () => {
+    const file = input.files?.[0]
+    if (!file) return
+
+    if (file.size > MAX_IMAGE_UPLOAD_BYTES) {
+      $q.notify({
+        type: 'warning',
+        message:
+          'Large image upload blocked to protect browser storage. Use an image URL or a smaller file.',
+      })
+      return
+    }
+
+    const reader = new FileReader()
+    reader.onload = () => {
+      const dataUrl = typeof reader.result === 'string' ? reader.result : ''
+      if (!dataUrl) return
+      insertHtmlAtCursor(
+        `<p><img src="${escapeAttribute(dataUrl)}" alt="${escapeAttribute(file.name)}" /></p>`,
+      )
+    }
+    reader.onerror = () => {
+      $q.notify({
+        type: 'negative',
+        message: 'Could not read the selected image file.',
+      })
+    }
+    reader.readAsDataURL(file)
+  }
+  input.click()
+}
+
+function getEditorContentEl() {
+  return longNoteEditor.value?.$el?.querySelector?.('.q-editor__content') || null
+}
+
+function removeAudioElement(audio) {
+  if (!audio) return
+  const parent = audio.parentElement
+  const wrapper = audio.closest?.('.embedded-audio-row')
+  const removeButton = wrapper?.querySelector?.('[data-remove-audio]')
+  if (removeButton) {
+    removeButton.remove()
+  }
+  audio.remove()
+  if (wrapper) {
+    if (!wrapper.textContent?.trim() && wrapper.children.length === 0) {
+      wrapper.remove()
+    }
+  }
+  if (
+    parent &&
+    parent.tagName === 'P' &&
+    !parent.textContent?.trim() &&
+    parent.children.length === 0
+  ) {
+    parent.remove()
+  }
+  const editorEl = getEditorContentEl()
+  editorEl?.dispatchEvent(new Event('input', { bubbles: true }))
+}
+
+function handleEditorClick(event) {
+  const removeButton = event.target?.closest?.('[data-remove-audio]')
+  if (!removeButton) return
+  event.preventDefault()
+  event.stopPropagation()
+  const row = removeButton.closest('.embedded-audio-row')
+  const audio = row?.querySelector('audio')
+  if (!audio) return
+  removeAudioElement(audio)
+  $q.notify({
+    type: 'positive',
+    message: 'Audio removed.',
+  })
+}
+
+const BLOCK_TAG_NAMES = new Set([
+  'P',
+  'DIV',
+  'LI',
+  'BLOCKQUOTE',
+  'PRE',
+  'H1',
+  'H2',
+  'H3',
+  'H4',
+  'H5',
+  'H6',
+  'TR',
+  'TD',
+  'TH',
+  'SECTION',
+  'ARTICLE',
+])
+
+function findBlockAncestor(node, root) {
+  let current = node
+  if (current && current.nodeType === Node.TEXT_NODE) current = current.parentNode
+  while (current && current !== root) {
+    if (current.nodeType === Node.ELEMENT_NODE && BLOCK_TAG_NAMES.has(current.tagName)) {
+      return current
+    }
+    current = current.parentNode
+  }
+  return current === root ? root : null
+}
+
+function rangeIsStrictlyEmpty(range) {
+  if (range.toString().length > 0) return false
+  const fragment = range.cloneContents()
+  if (fragment.querySelector && fragment.querySelector('*')) return false
+  return true
+}
+
+function audioImmediatelyBeforeCursor(range, block) {
+  const audios = Array.from(block.querySelectorAll('audio'))
+  if (audios.length === 0) return null
+  const candidates = audios.filter((audio) => {
+    const audioRange = document.createRange()
+    audioRange.selectNode(audio)
+    return range.compareBoundaryPoints(Range.START_TO_END, audioRange) >= 0
+  })
+  if (candidates.length === 0) return null
+
+  const lastAudio = candidates[candidates.length - 1]
+  const audioRange = document.createRange()
+  audioRange.selectNode(lastAudio)
+  const between = document.createRange()
+  try {
+    between.setStart(audioRange.endContainer, audioRange.endOffset)
+    between.setEnd(range.startContainer, range.startOffset)
+  } catch {
+    return null
+  }
+  return rangeIsStrictlyEmpty(between) ? lastAudio : null
+}
+
+function audioImmediatelyAfterCursor(range, block) {
+  const audios = Array.from(block.querySelectorAll('audio'))
+  if (audios.length === 0) return null
+  const candidates = audios.filter((audio) => {
+    const audioRange = document.createRange()
+    audioRange.selectNode(audio)
+    return range.compareBoundaryPoints(Range.END_TO_START, audioRange) <= 0
+  })
+  if (candidates.length === 0) return null
+
+  const firstAudio = candidates[0]
+  const audioRange = document.createRange()
+  audioRange.selectNode(firstAudio)
+  const between = document.createRange()
+  try {
+    between.setStart(range.endContainer, range.endOffset)
+    between.setEnd(audioRange.startContainer, audioRange.startOffset)
+  } catch {
+    return null
+  }
+  return rangeIsStrictlyEmpty(between) ? firstAudio : null
+}
+
+function findAdjacentAudioForDelete(direction) {
+  const selection = window.getSelection()
+  if (!selection || !selection.isCollapsed || selection.rangeCount === 0) return null
+
+  const editor = getEditorContentEl()
+  if (!editor || !editor.contains(selection.anchorNode)) return null
+
+  const range = selection.getRangeAt(0)
+  const cursorBlock = findBlockAncestor(range.startContainer, editor)
+  if (!cursorBlock) return null
+
+  if (direction === 'backward') {
+    return audioImmediatelyBeforeCursor(range, cursorBlock)
+  }
+
+  return audioImmediatelyAfterCursor(range, cursorBlock)
+}
+
+function removeSelectedAudio() {
+  const selection = window.getSelection()
+  if (!selection || selection.rangeCount === 0) {
+    $q.notify({
+      type: 'warning',
+      message: 'Place the cursor on an audio player or select it first.',
+    })
+    return
+  }
+
+  const range = selection.getRangeAt(0)
+  let targetNode = range.commonAncestorContainer
+  if (targetNode.nodeType === Node.TEXT_NODE) {
+    targetNode = targetNode.parentElement
+  }
+
+  const selectedAudio =
+    targetNode?.closest?.('audio') ||
+    targetNode?.querySelector?.('audio') ||
+    range.startContainer?.parentElement?.closest?.('audio') ||
+    range.endContainer?.parentElement?.closest?.('audio') ||
+    findAdjacentAudioForDelete('backward') ||
+    findAdjacentAudioForDelete('forward')
+
+  if (!selectedAudio) {
+    $q.notify({
+      type: 'warning',
+      message: 'No audio player selected to remove.',
+    })
+    return
+  }
+
+  removeAudioElement(selectedAudio)
+
+  $q.notify({
+    type: 'positive',
+    message: 'Audio removed.',
+  })
 }
 
 function getRunStyle(scriptType) {
@@ -692,53 +1056,6 @@ function getRunStyle(scriptType) {
   }
 }
 
-function styleTextNode(node) {
-  const text = node.textContent || ''
-  if (!text.trim()) return
-
-  const runs = splitScriptRuns(text)
-  if (runs.length === 0) return
-
-  const fragment = document.createDocumentFragment()
-  runs.forEach((run) => {
-    const span = document.createElement('span')
-    const style = getRunStyle(run.type)
-    span.style.fontFamily = style.fontFamily
-    span.style.fontSize = style.fontSize
-    span.style.color = style.color
-    span.textContent = run.text
-    fragment.appendChild(span)
-  })
-
-  node.parentNode.replaceChild(fragment, node)
-}
-
-function applyTypographyToHtml(html) {
-  const container = document.createElement('div')
-  container.innerHTML = html
-
-  function walk(node) {
-    if (!node) return
-
-    const children = Array.from(node.childNodes)
-    children.forEach((child) => {
-      if (child.nodeType === Node.TEXT_NODE) {
-        styleTextNode(child)
-      } else if (child.nodeType === Node.ELEMENT_NODE) {
-        walk(child)
-      }
-    })
-  }
-
-  walk(container)
-  return container.innerHTML
-}
-
-function formatTextWithTypography(text) {
-  const formatted = formatText(text)
-  return applyTypographyToHtml(formatted)
-}
-
 function stripHtml(text) {
   const tmp = document.createElement('div')
   tmp.innerHTML = text
@@ -746,20 +1063,28 @@ function stripHtml(text) {
 }
 
 function handleEditorKeydown(event) {
-  // Handle Tab key for indent
   if (event.key === 'Tab' && !event.shiftKey) {
     event.preventDefault()
-    // Execute indent command in the editor
     if (longNoteEditor.value) {
       longNoteEditor.value.runCmd('indent')
     }
+    return
   }
-  // Handle Shift+Tab for outdent
-  else if (event.key === 'Tab' && event.shiftKey) {
+
+  if (event.key === 'Tab' && event.shiftKey) {
     event.preventDefault()
-    // Execute outdent command in the editor
     if (longNoteEditor.value) {
       longNoteEditor.value.runCmd('outdent')
+    }
+    return
+  }
+
+  if (event.key === 'Backspace' || event.key === 'Delete') {
+    const direction = event.key === 'Backspace' ? 'backward' : 'forward'
+    const audio = findAdjacentAudioForDelete(direction)
+    if (audio) {
+      event.preventDefault()
+      removeAudioElement(audio)
     }
   }
 }
@@ -988,6 +1313,49 @@ function handleLongNotePaste(event) {
   margin-top: 8px;
   font-size: 0.7em;
   margin: 4px;
+}
+
+.long-note-content :deep(img),
+.long-note-dialog-wrap :deep(.q-editor__content img) {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  margin: 8px 0;
+  border-radius: 4px;
+}
+
+.long-note-dialog-wrap :deep(.q-editor__content audio) {
+  display: block;
+  width: min(100%, 480px);
+  margin: 8px 0;
+  outline: none;
+}
+
+.long-note-dialog-wrap :deep(.q-editor__content .embedded-audio-row) {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin: 12px 0;
+}
+
+.long-note-dialog-wrap :deep(.q-editor__content .remove-embedded-audio-btn) {
+  border: 1px solid #d1d5db;
+  background: #ffffff;
+  color: #ef4444;
+  border-radius: 999px;
+  width: 22px;
+  height: 22px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.long-note-dialog-wrap :deep(.q-editor__content .remove-embedded-audio-btn:hover) {
+  background: #fef2f2;
+  border-color: #fca5a5;
 }
 
 .long-note-dialog-wrap {
