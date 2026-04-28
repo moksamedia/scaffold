@@ -13,6 +13,8 @@
  *     PBKDF2 (SHA-256, 200k iterations). The salt and IV are stored
  *     alongside the ciphertext but the passphrase is never stored, so
  *     a stolen IDB dump cannot be decrypted offline without it.
+ *     Users may optionally store the unlock passphrase in localStorage
+ *     for automatic unlock on trusted devices.
  *
  * Mode `'session'` keeps a credentials object in module-local memory;
  * `'persisted'` returns the unlocked credentials when `unlock()`
@@ -24,6 +26,7 @@ import { getStorageAdapter } from '../storage/index.js'
 
 const META_KEY = 'media-s3-config'
 const PBKDF2_ITERATIONS = 200_000
+const S3_UNLOCK_PASSPHRASE_KEY = 'media-s3-unlock-passphrase'
 
 /**
  * @typedef {Object} S3PublicConfig
@@ -166,6 +169,7 @@ export async function clearS3Config() {
   const storage = getStorageAdapter()
   await storage.deleteMeta(META_KEY)
   inMemoryCredentials = null
+  clearRememberedS3UnlockPassphrase()
 }
 
 /**
@@ -205,6 +209,36 @@ export async function unlockS3Config(passphrase) {
  */
 export function lockS3Config() {
   inMemoryCredentials = null
+}
+
+/**
+ * Persist the unlock passphrase in localStorage so persisted-mode S3
+ * credentials can auto-unlock on next launch.
+ *
+ * This is intentionally optional because localStorage is plaintext at
+ * rest. Shared devices should leave this disabled.
+ *
+ * @param {string} passphrase
+ */
+export function rememberS3UnlockPassphrase(passphrase) {
+  if (!passphrase || typeof localStorage === 'undefined') return
+  localStorage.setItem(S3_UNLOCK_PASSPHRASE_KEY, passphrase)
+}
+
+/**
+ * Read the remembered S3 unlock passphrase from localStorage.
+ *
+ * @returns {string}
+ */
+export function getRememberedS3UnlockPassphrase() {
+  if (typeof localStorage === 'undefined') return ''
+  return localStorage.getItem(S3_UNLOCK_PASSPHRASE_KEY) || ''
+}
+
+/** Remove any remembered unlock passphrase from localStorage. */
+export function clearRememberedS3UnlockPassphrase() {
+  if (typeof localStorage === 'undefined') return
+  localStorage.removeItem(S3_UNLOCK_PASSPHRASE_KEY)
 }
 
 /**

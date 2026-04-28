@@ -16,6 +16,9 @@ import {
   lockS3Config,
   getS3Credentials,
   setS3SessionCredentials,
+  rememberS3UnlockPassphrase,
+  getRememberedS3UnlockPassphrase,
+  clearRememberedS3UnlockPassphrase,
 } from 'src/utils/media/s3-config.js'
 
 const PUBLIC_CONFIG = {
@@ -32,6 +35,7 @@ describe('S3 config persistence', () => {
   beforeEach(() => {
     setStorageAdapter(createLocalStorageAdapter())
     lockS3Config()
+    clearRememberedS3UnlockPassphrase()
   })
 
   it('persisted mode encrypts the secret and unlocks with the right passphrase', async () => {
@@ -87,5 +91,13 @@ describe('S3 config persistence', () => {
     await expect(
       saveS3Config(PUBLIC_CONFIG, { secretAccessKey: 's' }),
     ).rejects.toThrow(/passphrase/)
+  })
+
+  it('can remember and clear unlock passphrase in localStorage', () => {
+    expect(getRememberedS3UnlockPassphrase()).toBe('')
+    rememberS3UnlockPassphrase('local-passphrase')
+    expect(getRememberedS3UnlockPassphrase()).toBe('local-passphrase')
+    clearRememberedS3UnlockPassphrase()
+    expect(getRememberedS3UnlockPassphrase()).toBe('')
   })
 })

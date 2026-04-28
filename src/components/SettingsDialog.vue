@@ -265,6 +265,11 @@
                     @click="disconnectS3Settings"
                   />
                 </div>
+                <q-checkbox
+                  v-model="rememberS3UnlockPassphraseChecked"
+                  label="Remember this passphrase on this device (stored in localStorage)"
+                  class="q-mt-xs"
+                />
               </div>
 
               <div
@@ -433,6 +438,12 @@
                         dense
                         class="col-12 col-md-6"
                       />
+                      <div v-if="s3Form.mode === 'persisted'" class="col-12">
+                        <q-checkbox
+                          v-model="s3Form.rememberUnlockPassphrase"
+                          label="Remember unlock passphrase on this device (stored in localStorage)"
+                        />
+                      </div>
                     </div>
                     <div class="row q-mt-sm">
                       <q-space />
@@ -543,6 +554,27 @@
                   @click="backfillProjectToS3"
                 />
               </template>
+            </q-banner>
+            <q-banner
+              v-else-if="
+                currentProject &&
+                projectLocalOnlyMediaCount > 0 &&
+                s3ConfigState.configured &&
+                !store.mediaBackendSupportsRemoteSync()
+              "
+              rounded
+              class="bg-amber-1 text-amber-10 q-mb-lg"
+            >
+              <template v-slot:avatar>
+                <q-icon name="cloud_off" color="warning" />
+              </template>
+              <div class="text-subtitle2">S3 sync currently inactive</div>
+              <div class="text-body2">
+                <strong>{{ projectLocalOnlyMediaCount }}</strong> media
+                file{{ projectLocalOnlyMediaCount === 1 ? '' : 's' }} in this project are
+                local-only. Unlock or reconnect S3 in the Program tab to enable
+                "Push to S3".
+              </div>
             </q-banner>
 
             <div class="q-mb-lg">
@@ -817,6 +849,9 @@ import {
   lockS3Config,
   setS3SessionCredentials,
   getS3Credentials,
+  rememberS3UnlockPassphrase,
+  getRememberedS3UnlockPassphrase,
+  clearRememberedS3UnlockPassphrase,
 } from 'src/utils/media/s3-config.js'
 
 const props = defineProps({
@@ -898,6 +933,9 @@ const fontSizeOptions = Array.from({ length: 37 }, (_, i) => {
 const projectMediaUsage = ref({ imageBytes: 0, audioBytes: 0 })
 const projectMediaInventory = ref([])
 const showProjectMediaList = ref(false)
+const projectLocalOnlyMediaCount = computed(() =>
+  projectMediaInventory.value.filter((entry) => entry.inCache && entry.inRemote !== true).length,
+)
 
 // Media storage backend UI state
 const userFolderApiAvailable = ref(false)
@@ -1009,9 +1047,11 @@ const s3Form = ref({
   secretAccessKey: '',
   passphrase: '',
   passphraseConfirm: '',
+  rememberUnlockPassphrase: false,
   mode: 'session',
 })
 const s3UnlockPassphrase = ref('')
+const rememberS3UnlockPassphraseChecked = ref(false)
 const s3ConfigState = ref({
   configured: false,
   mode: null,
@@ -1036,7 +1076,17 @@ async function refreshS3State() {
     const stored = await loadS3Config()
     if (!stored?.publicConfig) {
       s3ConfigState.value = { configured: false, mode: null, unlocked: false, sharedBucket: false }
+      rememberS3UnlockPassphraseChecked.value = false
       return
+    }
+    const rememberedPassphrase = getRememberedS3UnlockPassphrase()
+    rememberS3UnlockPassphraseChecked.value = Boolean(rememberedPassphrase)
+    if (
+      stored.publicConfig.mode === 'persisted' &&
+      !getS3Credentials()?.secretAccessKey &&
+      rememberedPassphrase
+    ) {
+      await unlockS3Config(rememberedPassphrase)
     }
     const credentials = getS3Credentials()
     s3ConfigState.value = {
@@ -1058,6 +1108,7 @@ async function refreshS3State() {
       secretAccessKey: '',
       passphrase: '',
       passphraseConfirm: '',
+      rememberUnlockPassphrase: Boolean(rememberedPassphrase),
     }
   } catch (error) {
     console.warn('Failed to read S3 config:', error)
@@ -1105,8 +1156,14 @@ async function saveS3Settings() {
         secretAccessKey: s3Form.value.secretAccessKey,
         passphrase: s3Form.value.passphrase,
       })
+      if (s3Form.value.rememberUnlockPassphrase) {
+        rememberS3UnlockPassphrase(s3Form.value.passphrase)
+      } else {
+        clearRememberedS3UnlockPassphrase()
+      }
     } else {
       await setS3SessionCredentials(publicConfig, s3Form.value.secretAccessKey)
+      clearRememberedS3UnlockPassphrase()
     }
     await store.reselectMediaBackend()
     await refreshS3State()
@@ -1143,6 +1200,11 @@ async function unlockS3Settings() {
     })
     return
   }
+  if (rememberS3UnlockPassphraseChecked.value) {
+    rememberS3UnlockPassphrase(s3UnlockPassphrase.value)
+  } else {
+    clearRememberedS3UnlockPassphrase()
+  }
   s3UnlockPassphrase.value = ''
   await store.reselectMediaBackend()
   await refreshS3State()
@@ -1167,6 +1229,7 @@ async function lockS3Settings() {
 async function disconnectS3Settings() {
   try {
     await clearS3Config()
+    rememberS3UnlockPassphraseChecked.value = false
     await store.reselectMediaBackend()
     await refreshS3State()
     await refreshMediaBackendState()
