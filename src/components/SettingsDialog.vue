@@ -496,6 +496,28 @@
                 Recent log entries help us reproduce reported issues. Sensitive
                 fields (secrets, passphrases) are redacted automatically.
               </div>
+              <div class="row q-col-gutter-sm items-end q-mb-md">
+                <div class="col-12 col-md-4">
+                  <q-select
+                    v-model="logLevel"
+                    :options="logLevelOptions"
+                    label="Log level"
+                    outlined
+                    dense
+                    emit-value
+                    map-options
+                  />
+                </div>
+                <div class="col-12 col-md-auto">
+                  <q-btn
+                    outline
+                    no-caps
+                    icon="visibility"
+                    label="Open log viewer"
+                    @click="showLogViewer = true"
+                  />
+                </div>
+              </div>
               <div class="row q-gutter-sm items-center">
                 <q-btn
                   outline
@@ -917,17 +939,82 @@
         </q-card-actions>
       </q-card>
     </q-dialog>
+
+    <q-dialog v-model="showLogViewer" maximized>
+      <q-card>
+        <q-card-section class="row items-center q-pb-sm">
+          <div class="text-h6">Log Viewer</div>
+          <q-space />
+          <q-btn
+            flat
+            no-caps
+            icon="refresh"
+            label="Refresh"
+            @click="refreshDiagnosticsEntries"
+          />
+          <q-btn flat round dense icon="close" @click="showLogViewer = false" />
+        </q-card-section>
+
+        <q-separator />
+
+        <q-card-section class="q-pt-md">
+          <div class="text-caption text-grey-7 q-mb-sm">
+            Showing {{ diagnosticsEntryCount }} recent log
+            {{ diagnosticsEntryCount === 1 ? 'entry' : 'entries' }} (newest first).
+          </div>
+
+          <div v-if="diagnosticsEntryCount === 0" class="text-grey-7">
+            No logs captured yet.
+          </div>
+
+          <div v-else class="log-viewer-list">
+            <q-card
+              v-for="(entry, index) in diagnosticsEntries"
+              :key="`${entry.ts}-${entry.event}-${index}`"
+              flat
+              bordered
+              class="q-mb-sm"
+            >
+              <q-card-section class="q-pb-xs">
+                <div class="row items-center q-col-gutter-sm">
+                  <div class="col-auto">
+                    <q-badge :color="logLevelBadgeColor(entry.level)" :label="entry.level" />
+                  </div>
+                  <div class="col text-weight-medium">
+                    {{ entry.event }}
+                  </div>
+                  <div class="col-auto text-caption text-grey-7">
+                    {{ formatDate(entry.ts) }}
+                  </div>
+                </div>
+              </q-card-section>
+              <q-separator />
+              <q-card-section class="q-pt-sm">
+                <pre class="log-json">{{ formatLogEntry(entry) }}</pre>
+              </q-card-section>
+            </q-card>
+          </div>
+        </q-card-section>
+      </q-card>
+    </q-dialog>
   </q-dialog>
 </template>
 
 <script setup>
-import { ref, computed, watch, onMounted } from 'vue'
+import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
 import { useOutlineStore } from 'stores/outline-store'
 import { storeToRefs } from 'pinia'
 import { useQuasar } from 'quasar'
 import { getStorageAdapter } from 'src/utils/storage/index.js'
 import { downloadJSON as downloadJSONShared } from 'src/utils/export/json.js'
-import { clearLogs, getRecentLogs, logger } from 'src/utils/logging/logger.js'
+import {
+  clearLogs,
+  getLevel,
+  getRecentLogs,
+  logger,
+  LOG_LEVEL_OVERRIDE_KEY,
+  setLevel,
+} from 'src/utils/logging/logger.js'
 import {
   isUserFolderApiAvailable,
   pickUserFolder,
@@ -985,6 +1072,9 @@ const SETTINGS_ACTIVE_TAB_KEY = 'scaffold-settings-active-tab'
 const activeTab = ref('project')
 const showSaveVersionDialog = ref(false)
 const versionName = ref('')
+const showLogViewer = ref(false)
+const diagnosticsRefreshTick = ref(0)
+let diagnosticsRefreshTimerId = null
 
 // Program settings
 const programSettings = ref({
@@ -1373,7 +1463,59 @@ async function lockS3Settings() {
 
 // --- Diagnostics buffer ------------------------------------------------------
 
-const diagnosticsEntryCount = computed(() => getRecentLogs().length)
+const logLevel = ref(getLevel())
+const logLevelOptions = [
+  { label: 'Debug (verbose)', value: 'debug' },
+  { label: 'Info (default)', value: 'info' },
+  { label: 'Error only', value: 'error' },
+]
+const diagnosticsEntries = computed(() => {
+  diagnosticsRefreshTick.value
+  return getRecentLogs().slice().reverse()
+})
+const diagnosticsEntryCount = computed(() => diagnosticsEntries.value.length)
+
+function setDiagnosticsRefreshTimer(enabled) {
+  if (diagnosticsRefreshTimerId) {
+    clearInterval(diagnosticsRefreshTimerId)
+    diagnosticsRefreshTimerId = null
+  }
+  if (!enabled) return
+  diagnosticsRefreshTimerId = setInterval(() => {
+    diagnosticsRefreshTick.value += 1
+  }, 1000)
+}
+
+function refreshDiagnosticsEntries() {
+  diagnosticsRefreshTick.value += 1
+}
+
+function updateLogLevel(level) {
+  if (!level) return
+  setLevel(level)
+  try {
+    localStorage.setItem(LOG_LEVEL_OVERRIDE_KEY, level)
+  } catch {
+    // Ignore localStorage failures and keep runtime level only.
+  }
+  refreshDiagnosticsEntries()
+  $q.notify({
+    type: 'positive',
+    message: `Log level set to "${level}".`,
+    position: 'top',
+    timeout: 1800,
+  })
+}
+
+function formatLogEntry(entry) {
+  return JSON.stringify(entry, null, 2)
+}
+
+function logLevelBadgeColor(level) {
+  if (level === 'error') return 'negative'
+  if (level === 'debug') return 'info'
+  return 'primary'
+}
 
 function buildDiagnosticsPayload() {
   return {
@@ -1386,7 +1528,7 @@ function buildDiagnosticsPayload() {
       typeof navigator !== 'undefined' && navigator.userAgent
         ? navigator.userAgent
         : null,
-    entries: getRecentLogs(),
+    entries: diagnosticsEntries.value,
   }
 }
 
@@ -1454,6 +1596,7 @@ function downloadDiagnosticsLog() {
 
 function clearDiagnosticsLog() {
   clearLogs()
+  refreshDiagnosticsEntries()
   $q.notify({
     type: 'info',
     message: 'Cleared diagnostics buffer.',
@@ -1741,6 +1884,7 @@ onMounted(async () => {
   await refreshS3State()
   await refreshProjectMediaUsage()
   await refreshMediaSyncStatus()
+  refreshDiagnosticsEntries()
 })
 
 watch(currentProject, async () => {
@@ -1758,7 +1902,27 @@ watch(showDialog, async (visible) => {
     await refreshS3State()
     await refreshProjectMediaUsage()
     await refreshMediaSyncStatus()
+    logLevel.value = getLevel()
+    refreshDiagnosticsEntries()
+    setDiagnosticsRefreshTimer(true)
+  } else {
+    setDiagnosticsRefreshTimer(false)
   }
+})
+
+watch(logLevel, (nextLevel, prevLevel) => {
+  if (!nextLevel || nextLevel === prevLevel) return
+  updateLogLevel(nextLevel)
+})
+
+watch(showLogViewer, (visible) => {
+  if (visible) {
+    refreshDiagnosticsEntries()
+  }
+})
+
+onUnmounted(() => {
+  setDiagnosticsRefreshTimer(false)
 })
 
 async function loadProgramSettings() {
@@ -1894,6 +2058,8 @@ function formatDate(timestamp) {
 function closeDialog() {
   persistProgramSettings()
   localStorage.setItem(SETTINGS_ACTIVE_TAB_KEY, activeTab.value)
+  showLogViewer.value = false
+  setDiagnosticsRefreshTimer(false)
   showDialog.value = false
 }
 
@@ -1932,5 +2098,22 @@ watch(activeTab, (tab) => {
   border: 1px solid #bdbdbd;
   border-radius: 6px;
   padding: 0;
+}
+
+.log-viewer-list {
+  max-height: calc(100vh - 220px);
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+.log-json {
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-family:
+    ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, 'Liberation Mono',
+    monospace;
+  font-size: 12px;
+  line-height: 1.35;
 }
 </style>
