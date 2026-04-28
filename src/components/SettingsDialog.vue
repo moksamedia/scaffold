@@ -1139,6 +1139,14 @@ async function refreshS3State() {
     ) {
       await unlockS3Config(rememberedPassphrase)
       didAutoUnlock = !!getS3Credentials()?.secretAccessKey
+      // selectMediaAdapter only sees credentials it can read at the
+      // moment it runs. Boot-time selection happens before persisted-
+      // mode vaults are unlocked, so the active adapter falls through
+      // to a local-only tier. Re-run selection now so the cached-S3
+      // stack actually gets installed for the rest of the session.
+      if (didAutoUnlock) {
+        await store.reselectMediaBackend()
+      }
     }
     const credentials = getS3Credentials()
     const supportsRemoteSync = store.mediaBackendSupportsRemoteSync()
