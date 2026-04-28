@@ -364,7 +364,14 @@ export const useOutlineStore = defineStore('outline', () => {
    * @returns {Promise<Set<string>>}
    */
   async function getUnsyncedMediaForProject(projectId) {
-    if (!mediaBackendSupportsRemoteSync()) return new Set()
+    if (!mediaBackendSupportsRemoteSync()) {
+      logger.debug('media.sync.unsyncedForProject.skipped', {
+        projectId,
+        reason: 'backend does not support remote sync',
+        backend: mediaBackend.value,
+      })
+      return new Set()
+    }
     const target = projects.value.find((p) => p.id === projectId)
     if (!target) return new Set()
     const refs = collectProjectRefHashes([target])
@@ -389,15 +396,36 @@ export const useOutlineStore = defineStore('outline', () => {
     const cacheSet = new Set(cacheHashes)
 
     const out = new Set()
+    let refsInCache = 0
+    let refsAlreadyOnRemote = 0
+    let refsMissingFromCache = 0
     for (const hash of refs) {
       // We can only fix unsynced refs that we still hold locally.
       // Refs that aren't in cache either are already lost (will
       // render as "media unavailable" everywhere) or are in remote
       // already (so not a sync problem).
-      if (!cacheSet.has(hash)) continue
-      if (remoteSet.has(hash)) continue
+      if (!cacheSet.has(hash)) {
+        refsMissingFromCache += 1
+        continue
+      }
+      refsInCache += 1
+      if (remoteSet.has(hash)) {
+        refsAlreadyOnRemote += 1
+        continue
+      }
       out.add(hash)
     }
+    logger.info('media.sync.unsyncedForProject', {
+      projectId,
+      backend: mediaBackend.value,
+      refsTotal: refs.size,
+      refsInCache,
+      refsAlreadyOnRemote,
+      refsMissingFromCache,
+      unsyncedCount: out.size,
+      cacheTotal: cacheSet.size,
+      remoteTotal: remoteSet.size,
+    })
     return out
   }
 

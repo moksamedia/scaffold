@@ -1665,9 +1665,14 @@ onMounted(async () => {
   loadActiveTab()
   await loadProgramSettings()
   await loadVersions()
-  await refreshProjectMediaUsage()
+  // refreshS3State() must run BEFORE refreshProjectMediaUsage() so any
+  // pending auto-unlock + media-backend reselect happens first.
+  // Otherwise the inventory is built against the still-wrong local-only
+  // adapter and every entry renders as "Stored locally" instead of
+  // "Local cache only" / "Local cache + S3".
   await refreshMediaBackendState()
   await refreshS3State()
+  await refreshProjectMediaUsage()
   await refreshMediaSyncStatus()
 })
 
@@ -1681,9 +1686,10 @@ watch(currentProject, async () => {
 // uploads/deletes that happened while the dialog was closed.
 watch(showDialog, async (visible) => {
   if (visible) {
-    await refreshProjectMediaUsage()
+    // Same ordering rule as onMounted: unlock + reselect FIRST.
     await refreshMediaBackendState()
     await refreshS3State()
+    await refreshProjectMediaUsage()
     await refreshMediaSyncStatus()
   }
 })
