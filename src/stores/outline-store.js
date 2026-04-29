@@ -48,8 +48,10 @@ import {
 import { runContextMigration } from 'src/utils/context/migration.js'
 import { logger } from 'src/utils/logging/logger.js'
 import {
+  DEFAULT_LONG_NOTE_BG_OPACITY,
   DEFAULT_LONG_NOTE_COLOR_ROOT,
   MAX_RECENT_CUSTOM_COLORS,
+  clampOpacity,
   normalizeHexColor,
   pushRecentCustomColor,
 } from 'src/utils/color/long-note-palette.js'
@@ -278,6 +280,7 @@ export const useOutlineStore = defineStore('outline', () => {
           normalizeHexColor(programSettings.defaultLongNoteColorRoot) ||
           DEFAULT_LONG_NOTE_COLOR_ROOT,
         longNoteRecentCustomColors: [],
+        longNoteBgOpacity: DEFAULT_LONG_NOTE_BG_OPACITY,
       },
     }
     projects.value.push(project)
@@ -1850,6 +1853,65 @@ export const useOutlineStore = defineStore('outline', () => {
     persistToStorage()
   }
 
+  /**
+   * Project-wide strength for long-note background tints: how strongly
+   * each note's `collapsedBgColor` blends over the default surface
+   * (`1` = full color, `0` = surface only). Applies to every long note
+   * in the current project that has a background color.
+   */
+  function setLongNoteBgOpacity(value) {
+    const next = clampOpacity(value)
+    if (!currentProject.value) return
+    if (!currentProject.value.settings) currentProject.value.settings = {}
+    const raw = currentProject.value.settings.longNoteBgOpacity
+    if (next === DEFAULT_LONG_NOTE_BG_OPACITY) {
+      if (raw === undefined || raw === null) return
+      delete currentProject.value.settings.longNoteBgOpacity
+    } else {
+      if (raw === next) return
+      currentProject.value.settings.longNoteBgOpacity = next
+    }
+    currentProject.value.updatedAt = new Date().toISOString()
+    persistToStorage()
+  }
+
+  /**
+   * Remove legacy per-note `collapsedBgOpacity` from the tree. If the
+   * project has no `settings.longNoteBgOpacity` yet, hoist the first
+   * encountered per-note value (when paired with a color) so users who
+   * set strength before it became project-wide don't lose it.
+   */
+  function migrateLongNoteBgOpacityProjectWide(project) {
+    if (!project?.lists) return
+    let hoisted = null
+    function visit(items) {
+      for (const item of items) {
+        for (const note of item.longNotes || []) {
+          if (
+            note.collapsedBgOpacity != null &&
+            normalizeHexColor(note.collapsedBgColor)
+          ) {
+            const o = clampOpacity(note.collapsedBgOpacity)
+            if (hoisted === null) hoisted = o
+          }
+          delete note.collapsedBgOpacity
+        }
+        if (item.children?.length) visit(item.children)
+      }
+    }
+    visit(project.lists)
+
+    if (!project.settings) project.settings = {}
+    if (
+      project.settings.longNoteBgOpacity === undefined ||
+      project.settings.longNoteBgOpacity === null
+    ) {
+      project.settings.longNoteBgOpacity = hoisted ?? DEFAULT_LONG_NOTE_BG_OPACITY
+    } else {
+      project.settings.longNoteBgOpacity = clampOpacity(project.settings.longNoteBgOpacity)
+    }
+  }
+
   function isQuotaExceededError(error) {
     if (!error) return false
     return (
@@ -2291,6 +2353,7 @@ export const useOutlineStore = defineStore('outline', () => {
         nonTibetanFontColor: nonTibetanFontColor.value,
         longNoteColorRoot: DEFAULT_LONG_NOTE_COLOR_ROOT,
         longNoteRecentCustomColors: [],
+        longNoteBgOpacity: DEFAULT_LONG_NOTE_BG_OPACITY,
       },
     }
     projects.value.push(project)
@@ -2331,6 +2394,7 @@ export const useOutlineStore = defineStore('outline', () => {
             nonTibetanFontColor: nonTibetanFontColor.value,
             longNoteColorRoot: DEFAULT_LONG_NOTE_COLOR_ROOT,
             longNoteRecentCustomColors: [],
+            longNoteBgOpacity: DEFAULT_LONG_NOTE_BG_OPACITY,
           }
         } else {
           project.settings.fontSize =
@@ -2379,6 +2443,7 @@ export const useOutlineStore = defineStore('outline', () => {
         if (project.lists) {
           migrateItems(project.lists)
         }
+        migrateLongNoteBgOpacityProjectWide(project)
       })
     }
 
@@ -3027,6 +3092,7 @@ export const useOutlineStore = defineStore('outline', () => {
     setLongNoteColorRoot,
     pushLongNoteRecentCustomColor,
     setLongNoteBackground,
+    setLongNoteBgOpacity,
     undo,
     redo,
     clearHistory,

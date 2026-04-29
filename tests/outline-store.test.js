@@ -893,6 +893,22 @@ describe('Outline Store', () => {
       const note = store.currentProject.lists[0].longNotes.find((n) => n.id === id)
       expect(note.collapsedBgColor).toBe('#aabbcc')
     })
+
+    it('addLongNote ignores legacy per-note collapsedBgOpacity option', () => {
+      const id = store.addLongNote('i1', 'x', {
+        collapsedBgColor: '#aabbcc',
+        collapsedBgOpacity: 0.5,
+      })
+      const note = store.currentProject.lists[0].longNotes.find((n) => n.id === id)
+      expect('collapsedBgOpacity' in note).toBe(false)
+    })
+
+    it('setLongNoteBackground null clears per-note color only', () => {
+      const id = store.addLongNote('i1', 'plain', { collapsedBgColor: '#aabbcc' })
+      store.setLongNoteBackground('i1', id, null)
+      const note = store.currentProject.lists[0].longNotes.find((n) => n.id === id)
+      expect('collapsedBgColor' in note).toBe(false)
+    })
   })
 
   describe('long-note color settings', () => {
@@ -907,6 +923,7 @@ describe('Outline Store', () => {
       const project = await store.createProject('Fresh')
       expect(project.settings.longNoteColorRoot).toBe('#80aaff')
       expect(project.settings.longNoteRecentCustomColors).toEqual([])
+      expect(project.settings.longNoteBgOpacity).toBe(1)
     })
 
     it('setLongNoteColorRoot updates current project with normalized hex', () => {
@@ -936,6 +953,16 @@ describe('Outline Store', () => {
       expect(after).toHaveLength(5)
     })
 
+    it('setLongNoteBgOpacity clamps and removes the default from settings', () => {
+      store.setLongNoteBgOpacity(0.45)
+      expect(store.currentProject.settings.longNoteBgOpacity).toBe(0.45)
+
+      store.setLongNoteBgOpacity(1)
+      expect(store.currentProject.settings.longNoteBgOpacity).toBeUndefined()
+
+      store.setLongNoteBgOpacity(0)
+      expect(store.currentProject.settings.longNoteBgOpacity).toBe(0)
+    })
   })
 
   describe('long-note color legacy-load defaults', () => {
@@ -949,6 +976,34 @@ describe('Outline Store', () => {
       const proj = fresh.projects.find((p) => p.id === 'legacy')
       expect(proj.settings.longNoteColorRoot).toBe('#80aaff')
       expect(proj.settings.longNoteRecentCustomColors).toEqual([])
+      expect(proj.settings.longNoteBgOpacity).toBe(1)
+    })
+
+    it('loadFromStorage hoists per-note collapsedBgOpacity into project settings', async () => {
+      setActivePinia(createPinia())
+      const legacy = makeProject({
+        id: 'legacy2',
+        settings: { fontSize: 14 },
+        lists: [
+          makeItem({
+            longNotes: [
+              {
+                id: 'ln',
+                text: '<p>x</p>',
+                collapsed: true,
+                collapsedBgColor: '#aabbcc',
+                collapsedBgOpacity: 0.35,
+              },
+            ],
+          }),
+        ],
+      })
+      delete legacy.settings.longNoteBgOpacity
+      seedStore([legacy])
+      const fresh = await getStore()
+      const proj = fresh.projects.find((p) => p.id === 'legacy2')
+      expect(proj.settings.longNoteBgOpacity).toBe(0.35)
+      expect(proj.lists[0].longNotes[0].collapsedBgOpacity).toBeUndefined()
     })
   })
 

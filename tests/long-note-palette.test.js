@@ -1,8 +1,12 @@
 import { describe, it, expect } from 'vitest'
 import {
+  DEFAULT_LONG_NOTE_BG_OPACITY,
   DEFAULT_LONG_NOTE_COLOR_ROOT,
+  LONG_NOTE_BASE_BG,
   MAX_RECENT_CUSTOM_COLORS,
   PALETTE_SIZE,
+  buildBackgroundCss,
+  clampOpacity,
   generateComplementaryPalette,
   isValidHexColor,
   normalizeHexColor,
@@ -121,5 +125,57 @@ describe('pushRecentCustomColor', () => {
   it('returns a normalized copy of the existing list when input is invalid', () => {
     const next = pushRecentCustomColor(['AABBCC', 'not-a-color'], 'still-not-a-color')
     expect(next).toEqual(['#aabbcc'])
+  })
+})
+
+describe('clampOpacity', () => {
+  it('passes through values inside [0,1]', () => {
+    expect(clampOpacity(0)).toBe(0)
+    expect(clampOpacity(0.5)).toBe(0.5)
+    expect(clampOpacity(1)).toBe(1)
+  })
+
+  it('clamps out-of-range numbers', () => {
+    expect(clampOpacity(-0.5)).toBe(0)
+    expect(clampOpacity(2)).toBe(1)
+  })
+
+  it('falls back to the default for non-numeric / null / undefined', () => {
+    expect(clampOpacity(undefined)).toBe(DEFAULT_LONG_NOTE_BG_OPACITY)
+    expect(clampOpacity(null)).toBe(DEFAULT_LONG_NOTE_BG_OPACITY)
+    expect(clampOpacity('not-a-number')).toBe(DEFAULT_LONG_NOTE_BG_OPACITY)
+    expect(clampOpacity(NaN)).toBe(DEFAULT_LONG_NOTE_BG_OPACITY)
+  })
+})
+
+describe('buildBackgroundCss', () => {
+  it('returns the solid hex when opacity is 1', () => {
+    expect(buildBackgroundCss('#aabbcc', 1)).toBe('#aabbcc')
+    expect(buildBackgroundCss('AABBCC')).toBe('#aabbcc')
+  })
+
+  it('returns the base surface color when opacity is 0', () => {
+    expect(buildBackgroundCss('#aabbcc', 0)).toBe(LONG_NOTE_BASE_BG)
+  })
+
+  it('layers a translucent tint over the base surface for opacity in (0,1)', () => {
+    const css = buildBackgroundCss('#aabbcc', 0.5)
+    expect(css).toContain('rgba(170, 187, 204, 0.5)')
+    expect(css).toContain(LONG_NOTE_BASE_BG)
+    expect(css.startsWith('linear-gradient(')).toBe(true)
+  })
+
+  it('honors a custom base surface color', () => {
+    const css = buildBackgroundCss('#aabbcc', 0.5, '#ffffff')
+    expect(css).toContain('#ffffff')
+  })
+
+  it('returns null for invalid color input', () => {
+    expect(buildBackgroundCss('banana', 0.5)).toBeNull()
+    expect(buildBackgroundCss(null, 0.5)).toBeNull()
+  })
+
+  it('clamps invalid opacity to the default', () => {
+    expect(buildBackgroundCss('#aabbcc', 'not-a-number')).toBe('#aabbcc')
   })
 })

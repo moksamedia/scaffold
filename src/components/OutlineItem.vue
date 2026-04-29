@@ -260,7 +260,7 @@
     <q-dialog v-model="showLongNoteDialog" maximized>
       <q-card>
         <div class="long-note-dialog-wrap">
-          <q-card-section class="row items-center">
+          <q-card-section class="row items-center long-note-dialog-header" :style="longNoteDialogHeaderStyle">
             <div class="text-h6 long-note-dialog-title">
               {{ editingNote ? 'Edit Long Note' : 'Add Long Note' }} - {{ longNoteItemTitle }}
             </div>
@@ -309,7 +309,7 @@
             </q-banner>
           </div>
 
-          <q-card-section class="q-pt-none long-note-color-controls">
+          <q-card-section class="long-note-color-controls">
             <div class="row items-center q-col-gutter-md">
               <div class="col-auto text-caption text-grey-7">Background color</div>
 
@@ -380,6 +380,22 @@
                     class="long-note-color-check"
                   />
                 </button>
+              </div>
+
+              <div
+                class="col-auto row items-center q-gutter-xs long-note-color-strength"
+              >
+                <span class="text-caption text-grey-7">Strength (project)</span>
+                <q-slider
+                  v-model="projectLongNoteBgOpacityPercent"
+                  :min="0"
+                  :max="100"
+                  :step="5"
+                  dense
+                  label
+                  :label-value="`${projectLongNoteBgOpacityPercent}%`"
+                  aria-label="Project-wide long note background strength"
+                />
               </div>
 
               <q-space />
@@ -470,6 +486,8 @@ import {
 } from 'src/utils/media/references.js'
 import {
   DEFAULT_LONG_NOTE_COLOR_ROOT,
+  buildBackgroundCss,
+  clampOpacity,
   generateComplementaryPalette,
   normalizeHexColor,
 } from 'src/utils/color/long-note-palette.js'
@@ -551,6 +569,10 @@ const projectLongNoteColorRoot = computed(() => {
   return normalizeHexColor(stored) || DEFAULT_LONG_NOTE_COLOR_ROOT
 })
 
+const projectLongNoteBgOpacity = computed(() =>
+  clampOpacity(currentProject.value?.settings?.longNoteBgOpacity),
+)
+
 const generatedLongNotePalette = computed(() =>
   generateComplementaryPalette(projectLongNoteColorRoot.value),
 )
@@ -587,6 +609,22 @@ function clearSelectedNoteBgColor() {
   persistNoteBgColorToStore(null)
 }
 
+const projectLongNoteBgOpacityPercent = computed({
+  get: () => Math.round(projectLongNoteBgOpacity.value * 100),
+  set: (value) => {
+    store.setLongNoteBgOpacity((value ?? 100) / 100)
+  },
+})
+
+/** Title row of the long-note dialog: mirrors the panel’s color + project strength. */
+const longNoteDialogHeaderStyle = computed(() => {
+  const css = buildBackgroundCss(
+    selectedNoteBgColor.value,
+    projectLongNoteBgOpacity.value,
+  )
+  return css ? { background: css } : {}
+})
+
 function onPaletteRootChange(value) {
   const norm = normalizeHexColor(value)
   if (!norm) return
@@ -603,16 +641,20 @@ function onCustomColorChange(value) {
 
 function getCollapsedNoteStyle(note) {
   if (!note?.collapsed) return null
-  const color = normalizeHexColor(note.collapsedBgColor)
-  if (!color) return null
-  return { background: color }
+  const css = buildBackgroundCss(
+    note.collapsedBgColor,
+    projectLongNoteBgOpacity.value,
+  )
+  return css ? { background: css } : null
 }
 
 function getExpandedHeaderStyle(note) {
   if (!note || note.collapsed) return null
-  const color = normalizeHexColor(note.collapsedBgColor)
-  if (!color) return null
-  return { background: color }
+  const css = buildBackgroundCss(
+    note.collapsedBgColor,
+    projectLongNoteBgOpacity.value,
+  )
+  return css ? { background: css } : null
 }
 
 // Watch for long note dialog state changes to update global state
@@ -1604,8 +1646,24 @@ function handleLongNotePaste(event) {
   width: 100%;
 }
 
+.long-note-dialog-header {
+  transition: background 0.15s ease;
+}
+
 .long-note-dialog-wrap :deep(.q-editor__content) {
   padding: 12px;
+}
+
+.long-note-dialog-wrap :deep(.q-editor__content p),
+.long-note-content :deep(p) {
+  margin-block-end: 0.5em;
+}
+
+.long-note-dialog-wrap :deep(.q-editor__content ul),
+.long-note-dialog-wrap :deep(.q-editor__content ol),
+.long-note-content :deep(ul),
+.long-note-content :deep(ol) {
+  margin-block-start: 0.5em;
 }
 
 .long-note-dialog-title {
@@ -1625,11 +1683,21 @@ function handleLongNotePaste(event) {
 }
 
 .long-note-color-controls {
-  border-bottom: 1px solid #e0e0e0;
+  padding-top: 16px;
 }
 
 .long-note-color-group {
   padding-left: 12px;
+}
+
+.long-note-color-strength {
+  padding-left: 12px;
+  min-width: 200px;
+}
+
+.long-note-color-strength .q-slider {
+  width: 120px;
+  margin: 0 4px;
 }
 
 .long-note-color-swatch {

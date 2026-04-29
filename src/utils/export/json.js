@@ -54,8 +54,10 @@ import { blobToBase64, base64ToBlob } from '../media/ingest.js'
 import { getMediaAdapter } from '../media/index.js'
 import { isValidSha256Hex } from '../media/hash.js'
 import {
+  DEFAULT_LONG_NOTE_BG_OPACITY,
   DEFAULT_LONG_NOTE_COLOR_ROOT,
   MAX_RECENT_CUSTOM_COLORS,
+  clampOpacity,
   normalizeHexColor,
 } from '../color/long-note-palette.js'
 
@@ -108,6 +110,7 @@ export function exportAsJSON(projects, selectedProjectId = null, options = {}) {
             .filter(Boolean)
             .slice(0, MAX_RECENT_CUSTOM_COLORS)
         : [],
+      longNoteBgOpacity: clampOpacity(project.settings?.longNoteBgOpacity),
     },
     items: processItems(project.lists || [])
   }))
@@ -127,6 +130,31 @@ export function exportAsJSON(projects, selectedProjectId = null, options = {}) {
   }
 
   return exportData
+}
+
+/**
+ * Pre-import: read legacy per-note `collapsedBgOpacity` from raw
+ * export items so the value can be hoisted into
+ * `project.settings.longNoteBgOpacity` before `normalizeImportedItems`
+ * strips those fields.
+ */
+function collectLegacyLongNoteBgOpacityFromItems(items) {
+  let found = null
+  function walk(arr) {
+    for (const item of arr || []) {
+      for (const note of item.longNotes || []) {
+        if (
+          note.collapsedBgOpacity != null &&
+          normalizeHexColor(note.collapsedBgColor)
+        ) {
+          if (found === null) found = clampOpacity(note.collapsedBgOpacity)
+        }
+      }
+      if (item.children?.length) walk(item.children)
+    }
+  }
+  walk(items)
+  return found
 }
 
 function sanitizeVersionForExport(version, projectId) {
@@ -216,6 +244,7 @@ function normalizeImportedItems(items = [], parentId = null) {
     normalized.longNotes = Array.isArray(item.longNotes)
       ? item.longNotes.map((note) => {
           const importedNote = { ...note }
+          delete importedNote.collapsedBgOpacity
           const bg = normalizeHexColor(importedNote.collapsedBgColor)
           if (bg) {
             importedNote.collapsedBgColor = bg
@@ -444,7 +473,10 @@ export async function importFromJSON(jsonData) {
 
   // Process and return importable project data
   return {
-    projects: jsonData.projects.map(project => {
+    projects: jsonData.projects.map((project) => {
+      const legacyLongNoteBgOpacity = collectLegacyLongNoteBgOpacityFromItems(
+        project.items || [],
+      )
       const merged = {
         ...project,
         // Ensure all required fields have defaults
@@ -466,6 +498,14 @@ export async function importFromJSON(jsonData) {
         },
         lists: normalizeImportedItems(project.items || []),
       }
+
+      const fromSettings = project.settings?.longNoteBgOpacity
+      let opacity =
+        fromSettings === undefined || fromSettings === null
+          ? legacyLongNoteBgOpacity ?? DEFAULT_LONG_NOTE_BG_OPACITY
+          : fromSettings
+      merged.settings.longNoteBgOpacity = clampOpacity(opacity)
+
       merged.settings.longNoteColorRoot =
         normalizeHexColor(merged.settings.longNoteColorRoot) ||
         DEFAULT_LONG_NOTE_COLOR_ROOT

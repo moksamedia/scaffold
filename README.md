@@ -28,7 +28,7 @@ A powerful hierarchical outline and note-taking application built with Vue 3 and
 - **Context-Aware Shortcuts**: Intelligent keyboard handling that adapts to editing context
 - **Rich Text Editing**: Full-featured editor with lists, quotes, code blocks, links, and images
 - **Long Note Media Tools**: Insert image URLs, upload small images, and insert audio URLs in long notes
-- **Long Note Collapsed Color**: Tint each long note's collapsed background. Pick from a 6-color complementary palette generated from a project-level root color, choose a fully custom color, or quickly reuse one of the 5 most-recent custom colors. Selections are saved with the project.
+- **Long Note Collapsed Color**: Tint each long note's background (collapsed row or expanded header) with a per-note color. Pick from a 6-color complementary palette generated from a project-level root color, choose a fully custom color, or quickly reuse one of the 5 most-recent custom colors. A **project-wide** strength slider controls how strongly those tints blend over the default surface. Root color, custom recents, and strength are saved with the project.
 - **Content-Addressable Media Store**: Uploaded images and audio are deduped by SHA-256 hash and stored once in IndexedDB; long-note HTML, version snapshots, and JSON exports carry only `scaffold-media://<hash>` references
 - **Storage Guardrails**: Warns on high browser storage usage and save failures (for example quota limits)
 - **Diagnostics & Logging**: Structured `debug`/`info`/`error` logs across startup, context switching, media, and import/export, with a redaction-aware in-memory ring buffer the user can copy or download from the Settings dialog when reporting issues

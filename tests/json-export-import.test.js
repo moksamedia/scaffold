@@ -699,11 +699,62 @@ describe('long-note collapsed background color', () => {
     expect(importedNotes[1].collapsedBgColor).toBeUndefined()
   })
 
+  it('round-trips longNoteBgOpacity on project settings', async () => {
+    const original = makeProject({
+      lists: [makeItem({ longNotes: [{ id: 'a', text: '<p>x</p>', collapsedBgColor: '#aabbcc' }] })],
+      settings: { longNoteBgOpacity: 0.4 },
+    })
+    const exported = exportAsJSON([original])
+    expect(exported.projects[0].settings.longNoteBgOpacity).toBe(0.4)
+    expect(exported.projects[0].items[0].longNotes[0].collapsedBgOpacity).toBeUndefined()
+
+    const imported = await importFromJSON(exported)
+    expect(imported.projects[0].settings.longNoteBgOpacity).toBe(0.4)
+    expect('collapsedBgOpacity' in imported.projects[0].lists[0].longNotes[0]).toBe(false)
+  })
+
+  it('hoists legacy per-note collapsedBgOpacity into project settings on import', async () => {
+    const data = makeExportData([
+      makeProject({
+        settings: {},
+        lists: [
+          makeItem({
+            longNotes: [
+              {
+                id: 'a',
+                text: '<p>x</p>',
+                collapsed: true,
+                collapsedBgColor: '#aabbcc',
+                collapsedBgOpacity: 0.35,
+              },
+            ],
+          }),
+        ],
+      }),
+    ])
+    const imported = await importFromJSON(data)
+    expect(imported.projects[0].settings.longNoteBgOpacity).toBe(0.35)
+    expect(imported.projects[0].lists[0].longNotes[0].collapsedBgOpacity).toBeUndefined()
+  })
+
+  it('clamps longNoteBgOpacity on import', async () => {
+    const high = await importFromJSON(
+      makeExportData([makeProject({ settings: { longNoteBgOpacity: 5 } })]),
+    )
+    expect(high.projects[0].settings.longNoteBgOpacity).toBe(1)
+
+    const low = await importFromJSON(
+      makeExportData([makeProject({ settings: { longNoteBgOpacity: -1 } })]),
+    )
+    expect(low.projects[0].settings.longNoteBgOpacity).toBe(0)
+  })
+
   it('fills longNote color defaults when importing legacy payloads without those fields', async () => {
     const data = makeExportData([makeProject({ settings: {} })])
     const imported = await importFromJSON(data)
     const s = imported.projects[0].settings
     expect(s.longNoteColorRoot).toBe('#80aaff')
     expect(s.longNoteRecentCustomColors).toEqual([])
+    expect(s.longNoteBgOpacity).toBe(1)
   })
 })

@@ -20,6 +20,11 @@ const FALLBACK_SATURATION = 0.4
 export const PALETTE_SIZE = HUE_OFFSETS.length
 export const MAX_RECENT_CUSTOM_COLORS = 5
 export const DEFAULT_LONG_NOTE_COLOR_ROOT = '#80aaff'
+export const DEFAULT_LONG_NOTE_BG_OPACITY = 1
+/** Default surface color the tint is layered over so opacity behaves
+ *  intuitively as "tint strength" rather than letting the page show
+ *  through. Mirrors the `.long-note` CSS rule. */
+export const LONG_NOTE_BASE_BG = '#f5f5f5'
 
 export function normalizeHexColor(value) {
   if (typeof value !== 'string') return null
@@ -133,6 +138,46 @@ export function generateComplementaryPalette(rootColor) {
  * @param {string} color
  * @returns {string[]}
  */
+/**
+ * Clamp an arbitrary input into the valid CSS opacity range [0, 1].
+ * Non-numeric or undefined inputs fall back to
+ * {@link DEFAULT_LONG_NOTE_BG_OPACITY} so call sites can pass raw
+ * stored values without guarding.
+ */
+export function clampOpacity(value) {
+  if (value === null || value === undefined) return DEFAULT_LONG_NOTE_BG_OPACITY
+  const n = Number(value)
+  if (!Number.isFinite(n)) return DEFAULT_LONG_NOTE_BG_OPACITY
+  if (n < 0) return 0
+  if (n > 1) return 1
+  return n
+}
+
+/**
+ * Build the CSS `background` value for a long note. Layers the tint
+ * over the long-note base surface so the opacity slider behaves as
+ * "strength of the tint over gray" rather than "see-through to the
+ * page". Returns `null` when no valid color is provided.
+ *
+ * @param {string} hex hex color (with or without leading #).
+ * @param {number} [opacity=1] tint strength in [0, 1].
+ * @param {string} [baseBg=LONG_NOTE_BASE_BG] the surface color the
+ *   tint is layered over (mirrors `.long-note` CSS).
+ * @returns {string|null}
+ */
+export function buildBackgroundCss(hex, opacity = DEFAULT_LONG_NOTE_BG_OPACITY, baseBg = LONG_NOTE_BASE_BG) {
+  const norm = normalizeHexColor(hex)
+  if (!norm) return null
+  const a = clampOpacity(opacity)
+  if (a <= 0) return baseBg
+  if (a >= 1) return norm
+  const r = parseInt(norm.slice(1, 3), 16)
+  const g = parseInt(norm.slice(3, 5), 16)
+  const b = parseInt(norm.slice(5, 7), 16)
+  const tint = `rgba(${r}, ${g}, ${b}, ${a})`
+  return `linear-gradient(${tint}, ${tint}), ${baseBg}`
+}
+
 export function pushRecentCustomColor(list, color) {
   const norm = normalizeHexColor(color)
   const existing = Array.isArray(list)
