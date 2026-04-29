@@ -1308,6 +1308,12 @@ describe('Outline Store', () => {
       expect(store.currentProject.settings.showIndentGuides).toBe(false)
     })
 
+    it('setShowLongNotesInOutline updates store and project', () => {
+      store.setShowLongNotesInOutline(false)
+      expect(store.showLongNotesInOutline).toBe(false)
+      expect(store.currentProject.settings.showLongNotesInOutline).toBe(false)
+    })
+
     it('setTibetanFontFamily updates store and project', () => {
       store.setTibetanFontFamily('Noto Sans Tibetan')
       expect(store.tibetanFontFamily).toBe('Noto Sans Tibetan')

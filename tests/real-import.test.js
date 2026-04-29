@@ -221,6 +221,7 @@ describe('real export: store import flow', () => {
     expect(store.currentProjectId).toBe(pramanavartika.id)
     expect(store.indentSize).toBe(39)
     expect(store.showIndentGuides).toBe(false)
+    expect(store.showLongNotesInOutline).toBe(true)
   })
 
   it('imported project items are navigable', async () => {

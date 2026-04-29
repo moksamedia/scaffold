@@ -45,6 +45,7 @@ export function makeProject(overrides = {}) {
       indentSize: 32,
       defaultListType: 'ordered',
       showIndentGuides: true,
+      showLongNotesInOutline: true,
       tibetanFontFamily: 'Microsoft Himalaya',
       tibetanFontSize: 20,
       tibetanFontColor: '#000000',

@@ -72,6 +72,7 @@ export const useOutlineStore = defineStore('outline', () => {
   const indentSize = ref(32)
   const defaultListType = ref('ordered')
   const showIndentGuides = ref(true)
+  const showLongNotesInOutline = ref(true)
   const tibetanFontFamily = ref('Microsoft Himalaya')
   const tibetanFontSize = ref(20)
   const tibetanFontColor = ref('#000000')
@@ -244,6 +245,7 @@ export const useOutlineStore = defineStore('outline', () => {
     indentSize.value = project.settings.indentSize
     defaultListType.value = project.settings.defaultListType
     showIndentGuides.value = project.settings.showIndentGuides
+    showLongNotesInOutline.value = project.settings.showLongNotesInOutline !== false
     tibetanFontFamily.value = project.settings.tibetanFontFamily || 'Microsoft Himalaya'
     tibetanFontSize.value = project.settings.tibetanFontSize || 20
     tibetanFontColor.value = project.settings.tibetanFontColor || '#000000'
@@ -268,6 +270,7 @@ export const useOutlineStore = defineStore('outline', () => {
         indentSize: programSettings.defaultIndentSize || indentSize.value,
         defaultListType: programSettings.defaultListType || defaultListType.value,
         showIndentGuides: showIndentGuides.value,
+        showLongNotesInOutline: showLongNotesInOutline.value,
         tibetanFontFamily: programSettings.defaultTibetanFontFamily || tibetanFontFamily.value,
         tibetanFontSize: programSettings.defaultTibetanFontSize || tibetanFontSize.value,
         tibetanFontColor: programSettings.defaultTibetanFontColor || tibetanFontColor.value,
@@ -1722,6 +1725,18 @@ export const useOutlineStore = defineStore('outline', () => {
     persistToStorage()
   }
 
+  function setShowLongNotesInOutline(show) {
+    showLongNotesInOutline.value = show
+    if (currentProject.value) {
+      if (!currentProject.value.settings) {
+        currentProject.value.settings = {}
+      }
+      currentProject.value.settings.showLongNotesInOutline = show
+      currentProject.value.updatedAt = new Date().toISOString()
+    }
+    persistToStorage()
+  }
+
   function setTibetanFontFamily(value) {
     tibetanFontFamily.value = value
     if (currentProject.value) {
@@ -2345,6 +2360,7 @@ export const useOutlineStore = defineStore('outline', () => {
         indentSize: indentSize.value,
         defaultListType: defaultListType.value,
         showIndentGuides: showIndentGuides.value,
+        showLongNotesInOutline: showLongNotesInOutline.value,
         tibetanFontFamily: tibetanFontFamily.value,
         tibetanFontSize: tibetanFontSize.value,
         tibetanFontColor: tibetanFontColor.value,
@@ -2386,6 +2402,7 @@ export const useOutlineStore = defineStore('outline', () => {
             indentSize: indentSize.value,
             defaultListType: defaultListType.value,
             showIndentGuides: showIndentGuides.value,
+            showLongNotesInOutline: showLongNotesInOutline.value,
             tibetanFontFamily: tibetanFontFamily.value,
             tibetanFontSize: tibetanFontSize.value,
             tibetanFontColor: tibetanFontColor.value,
@@ -2510,6 +2527,7 @@ export const useOutlineStore = defineStore('outline', () => {
     indentSize.value = 32
     defaultListType.value = 'ordered'
     showIndentGuides.value = true
+    showLongNotesInOutline.value = true
     tibetanFontFamily.value = 'Microsoft Himalaya'
     tibetanFontSize.value = 20
     tibetanFontColor.value = '#000000'
@@ -3008,6 +3026,7 @@ export const useOutlineStore = defineStore('outline', () => {
     indentSize,
     defaultListType,
     showIndentGuides,
+    showLongNotesInOutline,
     tibetanFontFamily,
     tibetanFontSize,
     tibetanFontColor,
@@ -3083,6 +3102,7 @@ export const useOutlineStore = defineStore('outline', () => {
     setIndentSize,
     setDefaultListType,
     setShowIndentGuides,
+    setShowLongNotesInOutline,
     setTibetanFontFamily,
     setTibetanFontSize,
     setTibetanFontColor,

@@ -727,6 +727,11 @@
                 label="Show indent guides"
                 @update:model-value="store.setShowIndentGuides"
               />
+              <q-checkbox
+                v-model="showLongNotesInOutline"
+                label="Show long notes"
+                @update:model-value="store.setShowLongNotesInOutline"
+              />
             </div>
 
             <q-separator class="q-my-md" />
@@ -1111,6 +1116,7 @@ const {
   fontScale,
   indentSize,
   showIndentGuides,
+  showLongNotesInOutline,
   defaultListType,
   tibetanFontFamily,
   tibetanFontSize,

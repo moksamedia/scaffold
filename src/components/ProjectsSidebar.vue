@@ -116,6 +116,15 @@
           />
         </div>
 
+        <div class="q-mb-md">
+          <q-toggle
+            v-model="showLongNotesInOutline"
+            label="Show Long Notes"
+            color="primary"
+            @update:model-value="updateShowLongNotesInOutline"
+          />
+        </div>
+
         <q-list>
           <q-item
             v-for="project in projects"
@@ -302,6 +311,7 @@ const {
   indentSize,
   defaultListType,
   showIndentGuides,
+  showLongNotesInOutline,
   mediaBackend,
 } = storeToRefs(store)
 
@@ -531,6 +541,10 @@ function updateDefaultListType(value) {
 
 function updateShowIndentGuides(value) {
   store.setShowIndentGuides(value)
+}
+
+function updateShowLongNotesInOutline(value) {
+  store.setShowLongNotesInOutline(value)
 }
 
 function openExportAllDialog() {

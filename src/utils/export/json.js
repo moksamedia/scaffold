@@ -18,7 +18,8 @@
  *         "fontSize": 14,
  *         "indentSize": 32,
  *         "defaultListType": "ordered",
- *         "showIndentGuides": true
+ *         "showIndentGuides": true,
+ *         "showLongNotesInOutline": true
  *       },
  *       "items": [...]
  *     }
@@ -93,6 +94,7 @@ export function exportAsJSON(projects, selectedProjectId = null, options = {}) {
       indentSize: project.settings?.indentSize || 32,
       defaultListType: project.settings?.defaultListType || 'ordered',
       showIndentGuides: project.settings?.showIndentGuides !== false,
+      showLongNotesInOutline: project.settings?.showLongNotesInOutline !== false,
       tibetanFontFamily: project.settings?.tibetanFontFamily || 'Microsoft Himalaya',
       tibetanFontSize: project.settings?.tibetanFontSize || 20,
       tibetanFontColor: project.settings?.tibetanFontColor || '#000000',
@@ -486,6 +488,7 @@ export async function importFromJSON(jsonData) {
           indentSize: 32,
           defaultListType: 'ordered',
           showIndentGuides: true,
+          showLongNotesInOutline: true,
           tibetanFontFamily: 'Microsoft Himalaya',
           tibetanFontSize: 20,
           tibetanFontColor: '#000000',

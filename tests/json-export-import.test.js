@@ -104,6 +104,7 @@ describe('exportAsJSON', () => {
     expect(s.fontSize).toBe(14)
     expect(s.indentSize).toBe(32)
     expect(s.showIndentGuides).toBe(true)
+    expect(s.showLongNotesInOutline).toBe(true)
   })
 })
 

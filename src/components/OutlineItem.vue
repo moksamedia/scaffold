@@ -166,7 +166,7 @@
       </div>
 
       <div
-        v-if="item.longNotes && item.longNotes.length > 0"
+        v-if="showLongNotesInOutline && item.longNotes && item.longNotes.length > 0"
         class="long-notes"
         :style="{ marginLeft: 64 - 30 + scaledUiFontSize + 'px' /* a hack to align with oultline text */ }"
       >
@@ -517,6 +517,7 @@ const {
   fontScale,
   indentSize,
   showIndentGuides,
+  showLongNotesInOutline,
   currentlyEditingId,
   tibetanFontFamily,
   tibetanFontSize,
