@@ -186,8 +186,8 @@
       </q-scroll-area>
       <q-separator />
       <div class="q-px-md q-py-sm text-caption text-grey-7">
-        <div>v{{ APP_VERSION }}</div>
-        <div v-if="GIT_COMMIT">{{ GIT_COMMIT }}</div>
+        <div>v{{ APP_VERSION }}<span v-if="GIT_COMMIT">{{ " / #" + GIT_COMMIT }}</span></div>
+        <div v-if="buildTimeLabel">{{ buildTimeLabel }}</div>
       </div>
     </div>
 
@@ -299,8 +299,15 @@ import { useOutlineStore } from 'stores/outline-store'
 import { storeToRefs } from 'pinia'
 import { useQuasar } from 'quasar'
 import { isProjectLockStorageKey } from 'src/utils/project-tab-lock'
-import { APP_VERSION, GIT_COMMIT } from 'src/utils/build-info.js'
+import { APP_VERSION, GIT_COMMIT, BUILD_TIME } from 'src/utils/build-info.js'
 import { logger } from 'src/utils/logging/logger.js'
+
+const buildTimeLabel = computed(() => {
+  const iso = BUILD_TIME
+  if (!iso) return ''
+  const d = new Date(iso)
+  return Number.isNaN(d.getTime()) ? iso : d.toLocaleString()
+})
 
 const store = useOutlineStore()
 const $q = useQuasar()

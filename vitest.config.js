@@ -3,8 +3,9 @@ import path from 'path'
 
 export default defineConfig({
   define: {
-    'import.meta.env.VITE_APP_VERSION': JSON.stringify('0.0.0-test'),
-    'import.meta.env.VITE_GIT_COMMIT': JSON.stringify(''),
+    'process.env.VITE_APP_VERSION': JSON.stringify('0.0.0-test'),
+    'process.env.VITE_GIT_COMMIT': JSON.stringify(''),
+    'process.env.VITE_BUILD_TIME': JSON.stringify(''),
   },
   resolve: {
     alias: {

@@ -30,6 +30,7 @@ function readGitShortSha() {
 
 const VITE_APP_VERSION = readAppVersion()
 const VITE_GIT_COMMIT = readGitShortSha()
+const VITE_BUILD_TIME = new Date().toISOString()
 
 export default defineConfig((/* ctx */) => {
   return {
@@ -77,6 +78,7 @@ export default defineConfig((/* ctx */) => {
       env: {
         VITE_APP_VERSION,
         VITE_GIT_COMMIT,
+        VITE_BUILD_TIME,
       },
       // rawDefine: {}
       // ignorePublicFolder: true,
