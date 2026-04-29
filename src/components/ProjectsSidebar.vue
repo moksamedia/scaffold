@@ -7,182 +7,189 @@
     bordered
     class="bg-grey-2"
   >
-    <q-scroll-area class="fit">
-      <div class="q-pa-md">
-        <div class="row items-center q-mb-md">
-          <div class="col text-h6">Projects</div>
-          <q-btn round dense flat icon="download" size="sm" @click="openExportAllDialog">
-            <q-tooltip>Export All Projects</q-tooltip>
-          </q-btn>
-          <q-btn round dense flat icon="upload" size="sm" @click="handleImportJSON">
-            <q-tooltip>Import JSON</q-tooltip>
-          </q-btn>
-          <q-btn round dense flat icon="add" size="sm" @click="showNewProjectDialog = true">
-            <q-tooltip>New Project</q-tooltip>
-          </q-btn>
-        </div>
-
-        <div class="q-mb-md">
-          <div class="text-caption text-grey-8 q-mb-xs">Font Scale</div>
-          <div class="row items-center q-gutter-xs">
-            <q-btn
-              round
-              dense
-              flat
-              icon="remove"
-              size="sm"
-              :disable="fontScale <= 50"
-              @click="decreaseFontScale"
-            />
-            <div class="text-body2" style="min-width: 40px; text-align: center">
-              {{ fontScale }}%
-            </div>
-            <q-btn
-              round
-              dense
-              flat
-              icon="add"
-              size="sm"
-              :disable="fontScale >= 200"
-              @click="increaseFontScale"
-            />
-            <q-slider
-              v-model="fontScale"
-              :min="50"
-              :max="200"
-              :step="1"
-              color="primary"
-              class="col q-ml-sm"
-              @update:model-value="updateFontScale"
-            />
+    <div class="column fit no-wrap">
+      <q-scroll-area class="col">
+        <div class="q-pa-md">
+          <div class="row items-center q-mb-md">
+            <div class="col text-h6">Projects</div>
+            <q-btn round dense flat icon="download" size="sm" @click="openExportAllDialog">
+              <q-tooltip>Export All Projects</q-tooltip>
+            </q-btn>
+            <q-btn round dense flat icon="upload" size="sm" @click="handleImportJSON">
+              <q-tooltip>Import JSON</q-tooltip>
+            </q-btn>
+            <q-btn round dense flat icon="add" size="sm" @click="showNewProjectDialog = true">
+              <q-tooltip>New Project</q-tooltip>
+            </q-btn>
           </div>
-        </div>
 
-        <div class="q-mb-md">
-          <div class="text-caption text-grey-8 q-mb-xs">Indent Size</div>
-          <div class="row items-center q-gutter-xs">
-            <q-btn
-              round
-              dense
-              flat
-              icon="remove"
-              size="sm"
-              :disable="indentSize <= 5"
-              @click="decreaseIndentSize"
-            />
-            <div class="text-body2" style="min-width: 40px; text-align: center">
-              {{ indentSize }}px
-            </div>
-            <q-btn
-              round
-              dense
-              flat
-              icon="add"
-              size="sm"
-              :disable="indentSize >= 50"
-              @click="increaseIndentSize"
-            />
-            <q-slider
-              v-model="indentSize"
-              :min="5"
-              :max="50"
-              :step="1"
-              color="primary"
-              class="col q-ml-sm"
-              @update:model-value="updateIndentSize"
-            />
-          </div>
-        </div>
-
-        <div class="q-mb-md">
-          <div class="text-caption text-grey-8 q-mb-xs">Default List Type</div>
-          <q-select
-            v-model="defaultListType"
-            :options="listTypeOptions"
-            dense
-            outlined
-            emit-value
-            map-options
-            @update:model-value="updateDefaultListType"
-          />
-        </div>
-
-        <div class="q-mb-md">
-          <q-toggle
-            v-model="showIndentGuides"
-            label="Show Indent Guides"
-            color="primary"
-            @update:model-value="updateShowIndentGuides"
-          />
-        </div>
-
-        <div class="q-mb-md">
-          <q-toggle
-            v-model="showLongNotesInOutline"
-            label="Show Long Notes"
-            color="primary"
-            @update:model-value="updateShowLongNotesInOutline"
-          />
-        </div>
-
-        <q-list>
-          <q-item
-            v-for="project in projects"
-            :key="project.id"
-            clickable
-            v-ripple
-            :active="project.id === currentProjectId"
-            active-class="bg-primary text-white"
-            :class="{ 'project-row-locked': isProjectLockedRow(project.id) }"
-            @click="onProjectRowClick(project.id)"
-            class="q-mb-xs rounded-borders"
-          >
-            <q-item-section v-if="editingProjectId !== project.id">
-              <q-item-label>{{ project.name }}</q-item-label>
-              <q-item-label caption>
-                {{ formatDate(project.updatedAt) }}
-              </q-item-label>
-            </q-item-section>
-
-            <q-item-section v-else>
-              <q-input
-                v-model="editingProjectName"
+          <div class="q-mb-md">
+            <div class="text-caption text-grey-8 q-mb-xs">Font Scale</div>
+            <div class="row items-center q-gutter-xs">
+              <q-btn
+                round
                 dense
-                autofocus
-                @keyup.enter="saveProjectName"
-                @keyup.esc="cancelEditProjectName"
-                @blur="saveProjectName"
+                flat
+                icon="remove"
+                size="sm"
+                :disable="fontScale <= 50"
+                @click="decreaseFontScale"
               />
-            </q-item-section>
-
-            <q-item-section side v-if="editingProjectId !== project.id">
-              <div class="text-grey-8 q-gutter-xs">
-                <q-btn
-                  size="12px"
-                  flat
-                  dense
-                  round
-                  icon="edit"
-                  @click.stop="startEditProjectName(project)"
-                >
-                  <q-tooltip>Rename</q-tooltip>
-                </q-btn>
-                <q-btn
-                  size="12px"
-                  flat
-                  dense
-                  round
-                  icon="delete"
-                  @click.stop="confirmDeleteProject(project)"
-                >
-                  <q-tooltip>Delete</q-tooltip>
-                </q-btn>
+              <div class="text-body2" style="min-width: 40px; text-align: center">
+                {{ fontScale }}%
               </div>
-            </q-item-section>
-          </q-item>
-        </q-list>
+              <q-btn
+                round
+                dense
+                flat
+                icon="add"
+                size="sm"
+                :disable="fontScale >= 200"
+                @click="increaseFontScale"
+              />
+              <q-slider
+                v-model="fontScale"
+                :min="50"
+                :max="200"
+                :step="1"
+                color="primary"
+                class="col q-ml-sm"
+                @update:model-value="updateFontScale"
+              />
+            </div>
+          </div>
+
+          <div class="q-mb-md">
+            <div class="text-caption text-grey-8 q-mb-xs">Indent Size</div>
+            <div class="row items-center q-gutter-xs">
+              <q-btn
+                round
+                dense
+                flat
+                icon="remove"
+                size="sm"
+                :disable="indentSize <= 5"
+                @click="decreaseIndentSize"
+              />
+              <div class="text-body2" style="min-width: 40px; text-align: center">
+                {{ indentSize }}px
+              </div>
+              <q-btn
+                round
+                dense
+                flat
+                icon="add"
+                size="sm"
+                :disable="indentSize >= 50"
+                @click="increaseIndentSize"
+              />
+              <q-slider
+                v-model="indentSize"
+                :min="5"
+                :max="50"
+                :step="1"
+                color="primary"
+                class="col q-ml-sm"
+                @update:model-value="updateIndentSize"
+              />
+            </div>
+          </div>
+
+          <div class="q-mb-md">
+            <div class="text-caption text-grey-8 q-mb-xs">Default List Type</div>
+            <q-select
+              v-model="defaultListType"
+              :options="listTypeOptions"
+              dense
+              outlined
+              emit-value
+              map-options
+              @update:model-value="updateDefaultListType"
+            />
+          </div>
+
+          <div class="q-mb-md">
+            <q-toggle
+              v-model="showIndentGuides"
+              label="Show Indent Guides"
+              color="primary"
+              @update:model-value="updateShowIndentGuides"
+            />
+          </div>
+
+          <div class="q-mb-md">
+            <q-toggle
+              v-model="showLongNotesInOutline"
+              label="Show Long Notes"
+              color="primary"
+              @update:model-value="updateShowLongNotesInOutline"
+            />
+          </div>
+
+          <q-list>
+            <q-item
+              v-for="project in projects"
+              :key="project.id"
+              clickable
+              v-ripple
+              :active="project.id === currentProjectId"
+              active-class="bg-primary text-white"
+              :class="{ 'project-row-locked': isProjectLockedRow(project.id) }"
+              @click="onProjectRowClick(project.id)"
+              class="q-mb-xs rounded-borders"
+            >
+              <q-item-section v-if="editingProjectId !== project.id">
+                <q-item-label>{{ project.name }}</q-item-label>
+                <q-item-label caption>
+                  {{ formatDate(project.updatedAt) }}
+                </q-item-label>
+              </q-item-section>
+
+              <q-item-section v-else>
+                <q-input
+                  v-model="editingProjectName"
+                  dense
+                  autofocus
+                  @keyup.enter="saveProjectName"
+                  @keyup.esc="cancelEditProjectName"
+                  @blur="saveProjectName"
+                />
+              </q-item-section>
+
+              <q-item-section side v-if="editingProjectId !== project.id">
+                <div class="text-grey-8 q-gutter-xs">
+                  <q-btn
+                    size="12px"
+                    flat
+                    dense
+                    round
+                    icon="edit"
+                    @click.stop="startEditProjectName(project)"
+                  >
+                    <q-tooltip>Rename</q-tooltip>
+                  </q-btn>
+                  <q-btn
+                    size="12px"
+                    flat
+                    dense
+                    round
+                    icon="delete"
+                    @click.stop="confirmDeleteProject(project)"
+                  >
+                    <q-tooltip>Delete</q-tooltip>
+                  </q-btn>
+                </div>
+              </q-item-section>
+            </q-item>
+          </q-list>
+        </div>
+      </q-scroll-area>
+      <q-separator />
+      <div class="q-px-md q-py-sm text-caption text-grey-7">
+        <div>v{{ APP_VERSION }}</div>
+        <div v-if="GIT_COMMIT">{{ GIT_COMMIT }}</div>
       </div>
-    </q-scroll-area>
+    </div>
 
     <q-dialog v-model="showNewProjectDialog">
       <q-card style="min-width: 350px">
@@ -223,20 +230,15 @@
           undone.
         </q-card-section>
 
-        <q-card-section
-          v-if="canPurgeRemoteMedia && deleteSharedMediaCount > 0"
-          class="q-pt-none"
-        >
+        <q-card-section v-if="canPurgeRemoteMedia && deleteSharedMediaCount > 0" class="q-pt-none">
           <q-banner dense rounded class="bg-amber-1 text-amber-10 q-mb-sm">
             This project uniquely references
-            <strong>{{ deleteSharedMediaCount }}</strong> media
-            file{{ deleteSharedMediaCount === 1 ? '' : 's' }} on your
-            shared S3 bucket. Other devices may still be using them.
+            <strong>{{ deleteSharedMediaCount }}</strong> media file{{
+              deleteSharedMediaCount === 1 ? '' : 's'
+            }}
+            on your shared S3 bucket. Other devices may still be using them.
           </q-banner>
-          <q-checkbox
-            v-model="deletePurgeRemoteMedia"
-            label="Also delete from shared storage"
-          />
+          <q-checkbox v-model="deletePurgeRemoteMedia" label="Also delete from shared storage" />
         </q-card-section>
 
         <q-card-actions align="right">
@@ -269,17 +271,14 @@
               Single JSON file with media base64-encoded inline.
             </span>
             <span v-else>
-              Zip bundle (.scaffoldz) with media stored as separate files.
-              Smaller for media-heavy backups.
+              Zip bundle (.scaffoldz) with media stored as separate files. Smaller for media-heavy
+              backups.
             </span>
           </div>
         </q-card-section>
 
         <q-card-section>
-          <q-checkbox
-            v-model="includeVersionHistoryOnExportAll"
-            label="Include version history"
-          />
+          <q-checkbox v-model="includeVersionHistoryOnExportAll" label="Include version history" />
           <div class="text-caption text-grey-8 q-mt-xs">
             Embed all saved versions of every project in the backup. The file will be larger.
           </div>
@@ -300,6 +299,7 @@ import { useOutlineStore } from 'stores/outline-store'
 import { storeToRefs } from 'pinia'
 import { useQuasar } from 'quasar'
 import { isProjectLockStorageKey } from 'src/utils/project-tab-lock'
+import { APP_VERSION, GIT_COMMIT } from 'src/utils/build-info.js'
 import { logger } from 'src/utils/logging/logger.js'
 
 const store = useOutlineStore()
@@ -392,7 +392,7 @@ onUnmounted(() => {
 
 const listTypeOptions = [
   { label: 'Numbered (1, 2, 3)', value: 'ordered' },
-  { label: 'Bulleted (•)', value: 'unordered' }
+  { label: 'Bulleted (•)', value: 'unordered' },
 ]
 
 function createNewProject() {
@@ -628,7 +628,7 @@ function toggleDrawer() {
 }
 
 defineExpose({
-  toggleDrawer
+  toggleDrawer,
 })
 </script>
 

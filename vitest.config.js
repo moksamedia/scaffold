@@ -2,6 +2,10 @@ import { defineConfig } from 'vitest/config'
 import path from 'path'
 
 export default defineConfig({
+  define: {
+    'import.meta.env.VITE_APP_VERSION': JSON.stringify('0.0.0-test'),
+    'import.meta.env.VITE_GIT_COMMIT': JSON.stringify(''),
+  },
   resolve: {
     alias: {
       src: path.resolve(__dirname, 'src'),

@@ -1,8 +1,35 @@
 // Configuration for your app
 // https://v2.quasar.dev/quasar-cli-vite/quasar-config-file
 
+import { execFileSync } from 'node:child_process'
+import { readFileSync } from 'node:fs'
+import { dirname, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
+
 import { defineConfig } from '#q-app/wrappers'
 import { nodePolyfills } from 'vite-plugin-node-polyfills'
+
+const __dirname = dirname(fileURLToPath(import.meta.url))
+
+function readAppVersion() {
+  const pkgPath = join(__dirname, 'package.json')
+  const pkg = JSON.parse(readFileSync(pkgPath, 'utf8'))
+  return pkg.version ?? ''
+}
+
+function readGitShortSha() {
+  try {
+    return execFileSync('git', ['rev-parse', '--short', 'HEAD'], {
+      cwd: __dirname,
+      encoding: 'utf8',
+    }).trim()
+  } catch {
+    return ''
+  }
+}
+
+const VITE_APP_VERSION = readAppVersion()
+const VITE_GIT_COMMIT = readGitShortSha()
 
 export default defineConfig((/* ctx */) => {
   return {
@@ -47,7 +74,10 @@ export default defineConfig((/* ctx */) => {
 
       publicPath: process.env.GITHUB_PAGES ? '/scaffold/' : '/',
       // analyze: true,
-      // env: {},
+      env: {
+        VITE_APP_VERSION,
+        VITE_GIT_COMMIT,
+      },
       // rawDefine: {}
       // ignorePublicFolder: true,
       // minify: false,
