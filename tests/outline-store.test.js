@@ -863,6 +863,93 @@ describe('Outline Store', () => {
       store.toggleNoteCollapse('i1', noteId)
       expect(store.currentProject.lists[0].longNotes[0].collapsed).toBe(true)
     })
+
+    it('addLongNote with collapsedBgColor stores normalized hex', () => {
+      const id = store.addLongNote('i1', 'with-color', { collapsedBgColor: 'AABBCC' })
+      const note = store.currentProject.lists[0].longNotes.find((n) => n.id === id)
+      expect(note.collapsedBgColor).toBe('#aabbcc')
+    })
+
+    it('addLongNote ignores invalid collapsedBgColor', () => {
+      const id = store.addLongNote('i1', 'no-color', { collapsedBgColor: 'banana' })
+      const note = store.currentProject.lists[0].longNotes.find((n) => n.id === id)
+      expect(note.collapsedBgColor).toBeUndefined()
+    })
+
+    it('setLongNoteBackground sets and clears the per-note color', () => {
+      const id = store.addLongNote('i1', 'plain')
+      store.setLongNoteBackground('i1', id, '#aabbcc')
+      let note = store.currentProject.lists[0].longNotes.find((n) => n.id === id)
+      expect(note.collapsedBgColor).toBe('#aabbcc')
+
+      store.setLongNoteBackground('i1', id, null)
+      note = store.currentProject.lists[0].longNotes.find((n) => n.id === id)
+      expect('collapsedBgColor' in note).toBe(false)
+    })
+
+    it('setLongNoteBackground ignores invalid colors without clearing existing value', () => {
+      const id = store.addLongNote('i1', 'plain', { collapsedBgColor: '#aabbcc' })
+      store.setLongNoteBackground('i1', id, 'banana')
+      const note = store.currentProject.lists[0].longNotes.find((n) => n.id === id)
+      expect(note.collapsedBgColor).toBe('#aabbcc')
+    })
+  })
+
+  describe('long-note color settings', () => {
+    let store
+
+    beforeEach(async () => {
+      seedStore([makeProject({ id: 'p1' })])
+      store = await getStore()
+    })
+
+    it('createProject seeds default long-note color settings', async () => {
+      const project = await store.createProject('Fresh')
+      expect(project.settings.longNoteColorRoot).toBe('#80aaff')
+      expect(project.settings.longNoteRecentCustomColors).toEqual([])
+    })
+
+    it('setLongNoteColorRoot updates current project with normalized hex', () => {
+      store.setLongNoteColorRoot('AABBCC')
+      expect(store.currentProject.settings.longNoteColorRoot).toBe('#aabbcc')
+    })
+
+    it('setLongNoteColorRoot ignores invalid input', () => {
+      const before = store.currentProject.settings.longNoteColorRoot
+      store.setLongNoteColorRoot('banana')
+      expect(store.currentProject.settings.longNoteColorRoot).toBe(before)
+    })
+
+    it('pushLongNoteRecentCustomColor dedupes and caps at 5 entries', () => {
+      store.pushLongNoteRecentCustomColor('#111111')
+      store.pushLongNoteRecentCustomColor('#222222')
+      store.pushLongNoteRecentCustomColor('#333333')
+      store.pushLongNoteRecentCustomColor('#444444')
+      store.pushLongNoteRecentCustomColor('#555555')
+      store.pushLongNoteRecentCustomColor('#666666')
+      const list = store.currentProject.settings.longNoteRecentCustomColors
+      expect(list).toEqual(['#666666', '#555555', '#444444', '#333333', '#222222'])
+
+      store.pushLongNoteRecentCustomColor('444444')
+      const after = store.currentProject.settings.longNoteRecentCustomColors
+      expect(after[0]).toBe('#444444')
+      expect(after).toHaveLength(5)
+    })
+
+  })
+
+  describe('long-note color legacy-load defaults', () => {
+    it('legacy projects loaded without color settings get defaults', async () => {
+      setActivePinia(createPinia())
+      const legacy = makeProject({ id: 'legacy', settings: {} })
+      delete legacy.settings.longNoteColorRoot
+      delete legacy.settings.longNoteRecentCustomColors
+      seedStore([legacy])
+      const fresh = await getStore()
+      const proj = fresh.projects.find((p) => p.id === 'legacy')
+      expect(proj.settings.longNoteColorRoot).toBe('#80aaff')
+      expect(proj.settings.longNoteRecentCustomColors).toEqual([])
+    })
   })
 
   // ─── Undo/Redo ────────────────────────────────────────────

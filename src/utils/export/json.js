@@ -53,6 +53,11 @@ import { collectProjectRefHashes } from '../media/references.js'
 import { blobToBase64, base64ToBlob } from '../media/ingest.js'
 import { getMediaAdapter } from '../media/index.js'
 import { isValidSha256Hex } from '../media/hash.js'
+import {
+  DEFAULT_LONG_NOTE_COLOR_ROOT,
+  MAX_RECENT_CUSTOM_COLORS,
+  normalizeHexColor,
+} from '../color/long-note-palette.js'
 
 /**
  * @typedef {Object} ExportOptions
@@ -92,6 +97,17 @@ export function exportAsJSON(projects, selectedProjectId = null, options = {}) {
       nonTibetanFontFamily: project.settings?.nonTibetanFontFamily || 'Aptos, sans-serif',
       nonTibetanFontSize: project.settings?.nonTibetanFontSize || 16,
       nonTibetanFontColor: project.settings?.nonTibetanFontColor || '#000000',
+      longNoteColorRoot:
+        normalizeHexColor(project.settings?.longNoteColorRoot) ||
+        DEFAULT_LONG_NOTE_COLOR_ROOT,
+      longNoteRecentCustomColors: Array.isArray(
+        project.settings?.longNoteRecentCustomColors,
+      )
+        ? project.settings.longNoteRecentCustomColors
+            .map(normalizeHexColor)
+            .filter(Boolean)
+            .slice(0, MAX_RECENT_CUSTOM_COLORS)
+        : [],
     },
     items: processItems(project.lists || [])
   }))
@@ -156,11 +172,16 @@ function processItems(items) {
 
     // Add long notes if they exist
     if (item.longNotes && item.longNotes.length > 0) {
-      processedItem.longNotes = item.longNotes.map(note => ({
-        id: note.id,
-        text: note.text,
-        collapsed: note.collapsed || false
-      }))
+      processedItem.longNotes = item.longNotes.map(note => {
+        const exported = {
+          id: note.id,
+          text: note.text,
+          collapsed: note.collapsed || false,
+        }
+        const bg = normalizeHexColor(note.collapsedBgColor)
+        if (bg) exported.collapsedBgColor = bg
+        return exported
+      })
     }
 
     // Recursively process children
@@ -192,7 +213,18 @@ function normalizeImportedItems(items = [], parentId = null) {
     }
 
     normalized.shortNotes = Array.isArray(item.shortNotes) ? item.shortNotes : []
-    normalized.longNotes = Array.isArray(item.longNotes) ? item.longNotes : []
+    normalized.longNotes = Array.isArray(item.longNotes)
+      ? item.longNotes.map((note) => {
+          const importedNote = { ...note }
+          const bg = normalizeHexColor(importedNote.collapsedBgColor)
+          if (bg) {
+            importedNote.collapsedBgColor = bg
+          } else {
+            delete importedNote.collapsedBgColor
+          }
+          return importedNote
+        })
+      : []
     normalized.children = Array.isArray(item.children)
       ? normalizeImportedItems(item.children, item.id)
       : []
@@ -412,25 +444,41 @@ export async function importFromJSON(jsonData) {
 
   // Process and return importable project data
   return {
-    projects: jsonData.projects.map(project => ({
-      ...project,
-      // Ensure all required fields have defaults
-      rootListType: project.rootListType || 'ordered',
-      settings: {
-        fontSize: 14,
-        indentSize: 32,
-        defaultListType: 'ordered',
-        showIndentGuides: true,
-        tibetanFontFamily: 'Microsoft Himalaya',
-        tibetanFontSize: 20,
-        tibetanFontColor: '#000000',
-        nonTibetanFontFamily: 'Aptos, sans-serif',
-        nonTibetanFontSize: 16,
-        nonTibetanFontColor: '#000000',
-        ...project.settings
-      },
-      lists: normalizeImportedItems(project.items || [])
-    })),
+    projects: jsonData.projects.map(project => {
+      const merged = {
+        ...project,
+        // Ensure all required fields have defaults
+        rootListType: project.rootListType || 'ordered',
+        settings: {
+          fontSize: 14,
+          indentSize: 32,
+          defaultListType: 'ordered',
+          showIndentGuides: true,
+          tibetanFontFamily: 'Microsoft Himalaya',
+          tibetanFontSize: 20,
+          tibetanFontColor: '#000000',
+          nonTibetanFontFamily: 'Aptos, sans-serif',
+          nonTibetanFontSize: 16,
+          nonTibetanFontColor: '#000000',
+          longNoteColorRoot: DEFAULT_LONG_NOTE_COLOR_ROOT,
+          longNoteRecentCustomColors: [],
+          ...project.settings,
+        },
+        lists: normalizeImportedItems(project.items || []),
+      }
+      merged.settings.longNoteColorRoot =
+        normalizeHexColor(merged.settings.longNoteColorRoot) ||
+        DEFAULT_LONG_NOTE_COLOR_ROOT
+      merged.settings.longNoteRecentCustomColors = Array.isArray(
+        merged.settings.longNoteRecentCustomColors,
+      )
+        ? merged.settings.longNoteRecentCustomColors
+            .map(normalizeHexColor)
+            .filter(Boolean)
+            .slice(0, MAX_RECENT_CUSTOM_COLORS)
+        : []
+      return merged
+    }),
     projectVersions,
     importedMediaCount: mediaSummary.imported,
     warnings,

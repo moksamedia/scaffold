@@ -170,9 +170,17 @@
         class="long-notes"
         :style="{ marginLeft: 64 - 30 + scaledUiFontSize + 'px' /* a hack to align with oultline text */ }"
       >
-        <div v-for="note in item.longNotes" :key="note.id" v-show="!note.hidden" class="long-note">
+        <div
+          v-for="note in item.longNotes"
+          :key="note.id"
+          v-show="!note.hidden"
+          class="long-note"
+          :style="getCollapsedNoteStyle(note)"
+        >
           <div
             class="long-note-header"
+            :class="{ 'long-note-header--tinted': !note.collapsed && !!note.collapsedBgColor }"
+            :style="getExpandedHeaderStyle(note)"
             @click="toggleLongNote(note.id)"
             @dblclick.stop="editLongNote(note)"
           >
@@ -301,6 +309,92 @@
             </q-banner>
           </div>
 
+          <q-card-section class="q-pt-none long-note-color-controls">
+            <div class="row items-center q-col-gutter-md">
+              <div class="col-auto text-caption text-grey-7">Background color</div>
+
+              <div class="col-auto row items-center q-gutter-xs">
+                <button
+                  v-for="(color, i) in generatedLongNotePalette"
+                  :key="`long-note-palette-${i}`"
+                  type="button"
+                  class="long-note-color-swatch"
+                  :class="{ 'is-selected': isColorSelected(color) }"
+                  :style="{ background: color }"
+                  :aria-label="`Use generated color ${color}`"
+                  :title="`Generated palette: ${color}`"
+                  @click="selectNoteBgColor(color)"
+                >
+                  <q-icon
+                    v-if="isColorSelected(color)"
+                    name="check"
+                    size="14px"
+                    class="long-note-color-check"
+                  />
+                </button>
+              </div>
+
+              <label class="col-auto row items-center q-gutter-xs cursor-pointer long-note-color-group">
+                <span class="text-caption text-grey-7">Palette root</span>
+                <input
+                  type="color"
+                  class="long-note-color-input"
+                  :value="projectLongNoteColorRoot"
+                  aria-label="Palette root color"
+                  @change="onPaletteRootChange($event.target.value)"
+                  @input="onPaletteRootChange($event.target.value)"
+                />
+              </label>
+
+              <label class="col-auto row items-center q-gutter-xs cursor-pointer long-note-color-group">
+                <span class="text-caption text-grey-7">Custom</span>
+                <input
+                  type="color"
+                  class="long-note-color-input"
+                  :value="selectedNoteBgColor || '#ffffff'"
+                  aria-label="Custom background color"
+                  @change="onCustomColorChange($event.target.value)"
+                />
+              </label>
+
+              <div
+                v-if="recentLongNoteCustomColors.length > 0"
+                class="col-auto row items-center q-gutter-xs"
+              >
+                <span class="text-caption text-grey-7">Recent</span>
+                <button
+                  v-for="(color, i) in recentLongNoteCustomColors"
+                  :key="`long-note-recent-${i}`"
+                  type="button"
+                  class="long-note-color-swatch"
+                  :class="{ 'is-selected': isColorSelected(color) }"
+                  :style="{ background: color }"
+                  :aria-label="`Use recent color ${color}`"
+                  :title="`Recent: ${color}`"
+                  @click="selectNoteBgColor(color)"
+                >
+                  <q-icon
+                    v-if="isColorSelected(color)"
+                    name="check"
+                    size="14px"
+                    class="long-note-color-check"
+                  />
+                </button>
+              </div>
+
+              <q-space />
+
+              <q-btn
+                flat
+                dense
+                size="sm"
+                label="Clear"
+                :disable="!selectedNoteBgColor"
+                @click="clearSelectedNoteBgColor"
+              />
+            </div>
+          </q-card-section>
+
           <q-card-section class="q-pt-none">
             <q-editor
               ref="longNoteEditor"
@@ -374,6 +468,11 @@ import {
   normalizeHtmlToRefs,
   rewriteRefsWith,
 } from 'src/utils/media/references.js'
+import {
+  DEFAULT_LONG_NOTE_COLOR_ROOT,
+  generateComplementaryPalette,
+  normalizeHexColor,
+} from 'src/utils/color/long-note-palette.js'
 
 const props = defineProps({
   item: {
@@ -442,6 +541,79 @@ const editorContentStyle = computed(() => ({
   fontSize: `${Math.round(16 * (noteEditorFontScale.value / 100))}px`,
   padding: '12px',
 }))
+
+// Per-note collapsed background color, edited inside the dialog and
+// flushed to the store on save/autosave so previews tint immediately.
+const selectedNoteBgColor = ref(null)
+
+const projectLongNoteColorRoot = computed(() => {
+  const stored = currentProject.value?.settings?.longNoteColorRoot
+  return normalizeHexColor(stored) || DEFAULT_LONG_NOTE_COLOR_ROOT
+})
+
+const generatedLongNotePalette = computed(() =>
+  generateComplementaryPalette(projectLongNoteColorRoot.value),
+)
+
+const recentLongNoteCustomColors = computed(() => {
+  const raw = currentProject.value?.settings?.longNoteRecentCustomColors
+  if (!Array.isArray(raw)) return []
+  return raw.map(normalizeHexColor).filter(Boolean)
+})
+
+function isColorSelected(color) {
+  if (!color || !selectedNoteBgColor.value) return false
+  return normalizeHexColor(color) === selectedNoteBgColor.value
+}
+
+// Apply per-note background updates immediately when the dialog is
+// editing an already-persisted note so the collapsed preview reflects
+// the new color without waiting for the next text autosave. For
+// brand-new notes the value stays in `selectedNoteBgColor` until
+// Save / autosave creates the note.
+function persistNoteBgColorToStore(color) {
+  if (!editingNote.value) return
+  store.setLongNoteBackground(props.item.id, editingNote.value.id, color)
+}
+
+function selectNoteBgColor(color) {
+  const next = color ? normalizeHexColor(color) : null
+  selectedNoteBgColor.value = next
+  persistNoteBgColorToStore(next)
+}
+
+function clearSelectedNoteBgColor() {
+  selectedNoteBgColor.value = null
+  persistNoteBgColorToStore(null)
+}
+
+function onPaletteRootChange(value) {
+  const norm = normalizeHexColor(value)
+  if (!norm) return
+  store.setLongNoteColorRoot(norm)
+}
+
+function onCustomColorChange(value) {
+  const norm = normalizeHexColor(value)
+  if (!norm) return
+  selectedNoteBgColor.value = norm
+  store.pushLongNoteRecentCustomColor(norm)
+  persistNoteBgColorToStore(norm)
+}
+
+function getCollapsedNoteStyle(note) {
+  if (!note?.collapsed) return null
+  const color = normalizeHexColor(note.collapsedBgColor)
+  if (!color) return null
+  return { background: color }
+}
+
+function getExpandedHeaderStyle(note) {
+  if (!note || note.collapsed) return null
+  const color = normalizeHexColor(note.collapsedBgColor)
+  if (!color) return null
+  return { background: color }
+}
 
 // Watch for long note dialog state changes to update global state
 watch(showLongNoteDialog, (isOpen) => {
@@ -664,12 +836,14 @@ function addLongNote() {
   if (isDivider.value) return
   editingNote.value = null
   noteText.value = ''
+  selectedNoteBgColor.value = null
   showLongNoteDialog.value = true
 }
 
 async function editLongNote(note) {
   editingNote.value = note
   noteText.value = await expandRefsForEditor(note.text || '')
+  selectedNoteBgColor.value = normalizeHexColor(note.collapsedBgColor) || null
   showLongNoteDialog.value = true
 }
 
@@ -679,8 +853,15 @@ async function saveLongNote() {
     const normalized = (await collapseRefsForStorage(trimmed)).trim()
     if (editingNote.value) {
       store.updateNote(props.item.id, editingNote.value.id, 'long', normalized)
+      store.setLongNoteBackground(
+        props.item.id,
+        editingNote.value.id,
+        selectedNoteBgColor.value,
+      )
     } else {
-      const newNoteId = store.addLongNote(props.item.id, normalized)
+      const newNoteId = store.addLongNote(props.item.id, normalized, {
+        collapsedBgColor: selectedNoteBgColor.value,
+      })
       // Track the new note so subsequent saves update instead of creating
       if (newNoteId) {
         editingNote.value = props.item.longNotes.find((n) => n.id === newNoteId)
@@ -700,8 +881,15 @@ async function autosaveLongNote() {
 
   if (editingNote.value) {
     store.updateNote(props.item.id, editingNote.value.id, 'long', normalized)
+    store.setLongNoteBackground(
+      props.item.id,
+      editingNote.value.id,
+      selectedNoteBgColor.value,
+    )
   } else {
-    const newNoteId = store.addLongNote(props.item.id, normalized)
+    const newNoteId = store.addLongNote(props.item.id, normalized, {
+      collapsedBgColor: selectedNoteBgColor.value,
+    })
     editingNote.value = props.item.longNotes.find((n) => n.id === newNoteId)
   }
 
@@ -739,6 +927,7 @@ function closeLongNoteDialog() {
   showLongNoteDialog.value = false
   noteText.value = ''
   editingNote.value = null
+  selectedNoteBgColor.value = null
   lastAutosaved.value = null
   isAutosaving.value = false
 }
@@ -1339,6 +1528,11 @@ function handleLongNotePaste(event) {
   cursor: pointer;
 }
 
+.long-note-header--tinted {
+  padding: 4px 6px;
+  border-radius: 4px;
+}
+
 .long-note-label {
   font-weight: 500;
   color: #666;
@@ -1428,5 +1622,61 @@ function handleLongNotePaste(event) {
 
 .is-root > .item-content {
   border-left: 3px solid #1976d2;
+}
+
+.long-note-color-controls {
+  border-bottom: 1px solid #e0e0e0;
+}
+
+.long-note-color-group {
+  padding-left: 12px;
+}
+
+.long-note-color-swatch {
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  border: 1px solid rgba(0, 0, 0, 0.18);
+  padding: 0;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: transform 80ms ease, box-shadow 80ms ease, border-color 80ms ease;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06);
+}
+
+.long-note-color-swatch:hover {
+  transform: scale(1.08);
+  border-color: rgba(0, 0, 0, 0.32);
+}
+
+.long-note-color-swatch.is-selected {
+  border-color: #1976d2;
+  box-shadow: 0 0 0 2px rgba(25, 118, 210, 0.35);
+}
+
+.long-note-color-check {
+  color: rgba(0, 0, 0, 0.65);
+  pointer-events: none;
+}
+
+.long-note-color-input {
+  width: 32px;
+  height: 26px;
+  padding: 0;
+  border: 1px solid rgba(0, 0, 0, 0.18);
+  border-radius: 4px;
+  background: transparent;
+  cursor: pointer;
+}
+
+.long-note-color-input::-webkit-color-swatch-wrapper {
+  padding: 2px;
+}
+
+.long-note-color-input::-webkit-color-swatch {
+  border: none;
+  border-radius: 3px;
 }
 </style>

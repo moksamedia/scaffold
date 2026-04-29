@@ -47,6 +47,12 @@ import {
 } from 'src/utils/context/session.js'
 import { runContextMigration } from 'src/utils/context/migration.js'
 import { logger } from 'src/utils/logging/logger.js'
+import {
+  DEFAULT_LONG_NOTE_COLOR_ROOT,
+  MAX_RECENT_CUSTOM_COLORS,
+  normalizeHexColor,
+  pushRecentCustomColor,
+} from 'src/utils/color/long-note-palette.js'
 
 /** Placeholder text for newly created list items (cleared when user starts editing). */
 export const DEFAULT_NEW_LIST_ITEM_TEXT = 'New Item'
@@ -268,6 +274,10 @@ export const useOutlineStore = defineStore('outline', () => {
         nonTibetanFontSize: programSettings.defaultNonTibetanFontSize || nonTibetanFontSize.value,
         nonTibetanFontColor:
           programSettings.defaultNonTibetanFontColor || nonTibetanFontColor.value,
+        longNoteColorRoot:
+          normalizeHexColor(programSettings.defaultLongNoteColorRoot) ||
+          DEFAULT_LONG_NOTE_COLOR_ROOT,
+        longNoteRecentCustomColors: [],
       },
     }
     projects.value.push(project)
@@ -950,19 +960,24 @@ export const useOutlineStore = defineStore('outline', () => {
     }
   }
 
-  function addLongNote(itemId, text) {
+  function addLongNote(itemId, text, options = {}) {
     if (!currentProject.value) return
 
     const item = findItemById(currentProject.value.lists, itemId)
     if (item) {
       if (isDividerItem(item)) return
       const noteId = generateId()
-      item.longNotes.push({
+      const note = {
         id: noteId,
         text,
         collapsed: false,
         createdAt: new Date().toISOString(),
-      })
+      }
+      const normalizedColor = normalizeHexColor(options?.collapsedBgColor)
+      if (normalizedColor) {
+        note.collapsedBgColor = normalizedColor
+      }
+      item.longNotes.push(note)
       currentProject.value.updatedAt = new Date().toISOString()
       persistToStorage()
       return noteId
@@ -1766,6 +1781,75 @@ export const useOutlineStore = defineStore('outline', () => {
     persistToStorage()
   }
 
+  /**
+   * Update the project-level "root" hex color used to derive the
+   * 6-swatch complementary palette shown in the long-note editor.
+   * Invalid input is ignored so reactive bindings on the dialog can
+   * pass raw values from a color input without guarding callers.
+   */
+  function setLongNoteColorRoot(value) {
+    const normalized = normalizeHexColor(value)
+    if (!normalized) return
+    if (!currentProject.value) return
+    if (!currentProject.value.settings) currentProject.value.settings = {}
+    if (currentProject.value.settings.longNoteColorRoot === normalized) return
+    currentProject.value.settings.longNoteColorRoot = normalized
+    currentProject.value.updatedAt = new Date().toISOString()
+    persistToStorage()
+  }
+
+  /**
+   * Push a custom hex color into the project-level "recent customs"
+   * list (most-recent first, deduped, capped). Invalid colors are
+   * ignored. Used when the user picks a color via the dialog's custom
+   * picker so subsequent notes can quickly reuse it.
+   */
+  function pushLongNoteRecentCustomColor(value) {
+    const normalized = normalizeHexColor(value)
+    if (!normalized) return
+    if (!currentProject.value) return
+    if (!currentProject.value.settings) currentProject.value.settings = {}
+    const next = pushRecentCustomColor(
+      currentProject.value.settings.longNoteRecentCustomColors,
+      normalized,
+    )
+    currentProject.value.settings.longNoteRecentCustomColors = next
+    currentProject.value.updatedAt = new Date().toISOString()
+    persistToStorage()
+  }
+
+  /**
+   * Set (or clear) the per-note collapsed-background color.
+   *
+   * - Pass `null` / `undefined` to explicitly clear the color so the
+   *   note falls back to the default neutral background.
+   * - Pass a hex string to apply a tint that only renders when the
+   *   note is collapsed; the value is normalized.
+   * - Pass any other (invalid) string to leave the existing value
+   *   untouched. This protects against accidental clears caused by
+   *   in-flight UI inputs (e.g. an empty / mid-typing color picker
+   *   value).
+   */
+  function setLongNoteBackground(itemId, noteId, color) {
+    if (!currentProject.value) return
+    const item = findItemById(currentProject.value.lists, itemId)
+    if (!item || isDividerItem(item)) return
+    const note = item.longNotes.find((n) => n.id === noteId)
+    if (!note) return
+
+    if (color == null) {
+      if (!('collapsedBgColor' in note)) return
+      delete note.collapsedBgColor
+    } else {
+      const normalized = normalizeHexColor(color)
+      if (!normalized) return
+      if (note.collapsedBgColor === normalized) return
+      note.collapsedBgColor = normalized
+    }
+    currentProject.value.updatedAt = new Date().toISOString()
+    persistToStorage()
+  }
+
   function isQuotaExceededError(error) {
     if (!error) return false
     return (
@@ -2205,6 +2289,8 @@ export const useOutlineStore = defineStore('outline', () => {
         nonTibetanFontFamily: nonTibetanFontFamily.value,
         nonTibetanFontSize: nonTibetanFontSize.value,
         nonTibetanFontColor: nonTibetanFontColor.value,
+        longNoteColorRoot: DEFAULT_LONG_NOTE_COLOR_ROOT,
+        longNoteRecentCustomColors: [],
       },
     }
     projects.value.push(project)
@@ -2243,6 +2329,8 @@ export const useOutlineStore = defineStore('outline', () => {
             nonTibetanFontFamily: nonTibetanFontFamily.value,
             nonTibetanFontSize: nonTibetanFontSize.value,
             nonTibetanFontColor: nonTibetanFontColor.value,
+            longNoteColorRoot: DEFAULT_LONG_NOTE_COLOR_ROOT,
+            longNoteRecentCustomColors: [],
           }
         } else {
           project.settings.fontSize =
@@ -2258,6 +2346,17 @@ export const useOutlineStore = defineStore('outline', () => {
             project.settings.nonTibetanFontSize || nonTibetanFontSize.value
           project.settings.nonTibetanFontColor =
             project.settings.nonTibetanFontColor || nonTibetanFontColor.value
+          project.settings.longNoteColorRoot =
+            normalizeHexColor(project.settings.longNoteColorRoot) ||
+            DEFAULT_LONG_NOTE_COLOR_ROOT
+          project.settings.longNoteRecentCustomColors = Array.isArray(
+            project.settings.longNoteRecentCustomColors,
+          )
+            ? project.settings.longNoteRecentCustomColors
+                .map(normalizeHexColor)
+                .filter(Boolean)
+                .slice(0, MAX_RECENT_CUSTOM_COLORS)
+            : []
         }
 
         function migrateItems(items) {
@@ -2925,6 +3024,9 @@ export const useOutlineStore = defineStore('outline', () => {
     setNonTibetanFontFamily,
     setNonTibetanFontSize,
     setNonTibetanFontColor,
+    setLongNoteColorRoot,
+    pushLongNoteRecentCustomColor,
+    setLongNoteBackground,
     undo,
     redo,
     clearHistory,

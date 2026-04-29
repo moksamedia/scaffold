@@ -632,3 +632,78 @@ describe('JSON import with media payload', () => {
     expect(await adapter.has(hash)).toBe(true)
   })
 })
+
+describe('long-note collapsed background color', () => {
+  it('exports project-level palette settings with normalized values', () => {
+    const project = makeProject({
+      settings: {
+        longNoteColorRoot: '3366CC',
+        longNoteRecentCustomColors: ['#abc', '#NOTHEX', '#11AABB'],
+      },
+    })
+    const result = exportAsJSON([project])
+    const s = result.projects[0].settings
+    expect(s.longNoteColorRoot).toBe('#3366cc')
+    expect(s.longNoteRecentCustomColors).toEqual(['#aabbcc', '#11aabb'])
+  })
+
+  it('falls back to default longNoteColorRoot when missing or invalid', () => {
+    const noColor = makeProject({ settings: {} })
+    const invalidColor = makeProject({ settings: { longNoteColorRoot: 'banana' } })
+    const r1 = exportAsJSON([noColor])
+    const r2 = exportAsJSON([invalidColor])
+    expect(r1.projects[0].settings.longNoteColorRoot).toBe('#80aaff')
+    expect(r2.projects[0].settings.longNoteColorRoot).toBe('#80aaff')
+    expect(r1.projects[0].settings.longNoteRecentCustomColors).toEqual([])
+  })
+
+  it('exports per-note collapsedBgColor only when set, normalized to lowercase', () => {
+    const item = makeItem({
+      longNotes: [
+        { id: 'a', text: '<p>x</p>', collapsed: true, collapsedBgColor: 'AABBCC' },
+        { id: 'b', text: '<p>y</p>', collapsed: false },
+        { id: 'c', text: '<p>z</p>', collapsed: true, collapsedBgColor: 'banana' },
+      ],
+    })
+    const result = exportAsJSON([makeProject({ lists: [item] })])
+    const exportedNotes = result.projects[0].items[0].longNotes
+    expect(exportedNotes[0].collapsedBgColor).toBe('#aabbcc')
+    expect(exportedNotes[1].collapsedBgColor).toBeUndefined()
+    expect(exportedNotes[2].collapsedBgColor).toBeUndefined()
+  })
+
+  it('round-trips the long-note color settings and per-note color', async () => {
+    const item = makeItem({
+      longNotes: [
+        { id: 'a', text: '<p>x</p>', collapsed: true, collapsedBgColor: '#aabbcc' },
+        { id: 'b', text: '<p>y</p>', collapsed: false },
+      ],
+    })
+    const original = makeProject({
+      lists: [item],
+      settings: {
+        longNoteColorRoot: '#3366cc',
+        longNoteRecentCustomColors: ['#aabbcc', '#112233'],
+      },
+    })
+
+    const exported = exportAsJSON([original])
+    const imported = await importFromJSON(exported)
+
+    const importedSettings = imported.projects[0].settings
+    expect(importedSettings.longNoteColorRoot).toBe('#3366cc')
+    expect(importedSettings.longNoteRecentCustomColors).toEqual(['#aabbcc', '#112233'])
+
+    const importedNotes = imported.projects[0].lists[0].longNotes
+    expect(importedNotes[0].collapsedBgColor).toBe('#aabbcc')
+    expect(importedNotes[1].collapsedBgColor).toBeUndefined()
+  })
+
+  it('fills longNote color defaults when importing legacy payloads without those fields', async () => {
+    const data = makeExportData([makeProject({ settings: {} })])
+    const imported = await importFromJSON(data)
+    const s = imported.projects[0].settings
+    expect(s.longNoteColorRoot).toBe('#80aaff')
+    expect(s.longNoteRecentCustomColors).toEqual([])
+  })
+})
