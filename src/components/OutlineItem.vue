@@ -175,12 +175,10 @@
           :key="note.id"
           v-show="!note.hidden"
           class="long-note"
-          :style="getCollapsedNoteStyle(note)"
+          :style="getLongNoteSurfaceStyle(note)"
         >
           <div
             class="long-note-header"
-            :class="{ 'long-note-header--tinted': !note.collapsed && !!note.collapsedBgColor }"
-            :style="getExpandedHeaderStyle(note)"
             @click="toggleLongNote(note.id)"
             @dblclick.stop="editLongNote(note)"
           >
@@ -639,19 +637,10 @@ function onCustomColorChange(value) {
   persistNoteBgColorToStore(norm)
 }
 
-function getCollapsedNoteStyle(note) {
-  if (!note?.collapsed) return null
+/** Collapsed or expanded: tint the whole long-note block when a color is set. */
+function getLongNoteSurfaceStyle(note) {
   const css = buildBackgroundCss(
-    note.collapsedBgColor,
-    projectLongNoteBgOpacity.value,
-  )
-  return css ? { background: css } : null
-}
-
-function getExpandedHeaderStyle(note) {
-  if (!note || note.collapsed) return null
-  const css = buildBackgroundCss(
-    note.collapsedBgColor,
+    note?.collapsedBgColor,
     projectLongNoteBgOpacity.value,
   )
   return css ? { background: css } : null
@@ -1568,11 +1557,6 @@ function handleLongNotePaste(event) {
   align-items: center;
   gap: 8px;
   cursor: pointer;
-}
-
-.long-note-header--tinted {
-  padding: 4px 6px;
-  border-radius: 4px;
 }
 
 .long-note-label {
